@@ -1,0 +1,564 @@
+{
+  "meta": {
+    "kit": "0.3.0",
+    "project": "harness-kit-sandbox",
+    "repo": "obidex/harness-kit-sandbox",
+    "commit": "8730d531066f21826eb499b80b1c294542e895a3",
+    "when": "2026-10-04T18:04:14.609Z",
+    "profile": "missing",
+    "totals": {
+      "PASS": 12,
+      "FAIL": 4,
+      "UNKNOWN": 61,
+      "NOT APPLICABLE": 1
+    }
+  },
+  "results": [
+    {
+      "id": "C01",
+      "title": "Stages",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C02",
+      "title": "One outcome per card",
+      "result": "UNKNOWN",
+      "evidence": "no card issue template found; cards may live elsewhere (judgment review)",
+      "how": "script"
+    },
+    {
+      "id": "C03",
+      "title": "How a card ends",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C04",
+      "title": "Never stall silently",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C05",
+      "title": "Investigate first",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C06",
+      "title": "Scope",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C07",
+      "title": "Evidence",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C08",
+      "title": "Tests are never weakened",
+      "result": "PASS",
+      "evidence": "1 test files: no .only, .skip or x-prefixed test",
+      "how": "script"
+    },
+    {
+      "id": "C09",
+      "title": "Proportionate verification",
+      "result": "FAIL",
+      "evidence": "no workflow checks for the \"Tier-3: authorized by card\" line",
+      "how": "script"
+    },
+    {
+      "id": "C10",
+      "title": "Independent review",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C11",
+      "title": "Build floor and release bar",
+      "result": "FAIL",
+      "evidence": "no blocker/major/minor severity labels (found: none)",
+      "how": "script"
+    },
+    {
+      "id": "C12",
+      "title": "Gates hold",
+      "result": "PASS",
+      "evidence": "PR only, required ci, harness-audit, no bypass actor (main-protection)",
+      "how": "script"
+    },
+    {
+      "id": "C13",
+      "title": "After the merge",
+      "result": "PASS",
+      "evidence": "every completed push run on main at 8730d53 succeeded (ci)",
+      "how": "script"
+    },
+    {
+      "id": "C14",
+      "title": "Failure handling",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C15",
+      "title": "No silent stall",
+      "result": "FAIL",
+      "evidence": "no scheduled stale-work job",
+      "how": "script"
+    },
+    {
+      "id": "C16",
+      "title": "Handover",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C17",
+      "title": "One home per fact",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so canon files and caps are unknown",
+      "how": "script"
+    },
+    {
+      "id": "C18",
+      "title": "Ratchet",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "C19",
+      "title": "Prevention",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O01",
+      "title": "Act within authorization",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O02",
+      "title": "One batch",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O03",
+      "title": "Decisions",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O04",
+      "title": "Secrets",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O05",
+      "title": "His approval is his own act",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O06",
+      "title": "Model roles",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O07",
+      "title": "Verification by risk",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O08",
+      "title": "Short headline reports",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O09",
+      "title": "No Claude attribution",
+      "result": "PASS",
+      "evidence": "attribution blanked in settings; none in the last 200 commits",
+      "how": "script"
+    },
+    {
+      "id": "O10",
+      "title": "Alerts",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O11",
+      "title": "The owner is not a merge gate",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "O12",
+      "title": "Read for meaning",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "DB01",
+      "title": "Migrations only",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "DB02",
+      "title": "Consent class",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "DB03",
+      "title": "Backup first",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "DB04",
+      "title": "Access control in the database",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "DB05",
+      "title": "Generated schema reference",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "AU01",
+      "title": "Check by capability",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "AU02",
+      "title": "Server-side trust",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "AU03",
+      "title": "Leading-site safety",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "AU04",
+      "title": "Deterministic permission tests",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "PI01",
+      "title": "Nothing private in public output",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "PI02",
+      "title": "Measure compiled output",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "PI03",
+      "title": "Public records stay clean",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "DP01",
+      "title": "Deploy from the default branch",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "DP02",
+      "title": "Real data needs a verified release",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "DP03",
+      "title": "Platform settings are owner-only",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "RJ01",
+      "title": "Bounded",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "RJ02",
+      "title": "No silent failure",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "RJ03",
+      "title": "Deduplicated alerts",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "RJ04",
+      "title": "Least privilege",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "SD01",
+      "title": "Money is integer",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "SD02",
+      "title": "Computed, never guessed",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "SD03",
+      "title": "Secrets stay server-side",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "BL01",
+      "title": "Strings through i18n",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "BL02",
+      "title": "Approved strings only",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "BL03",
+      "title": "Direction-safe styling",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "HI01",
+      "title": "Versioned owner blocks",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "HI02",
+      "title": "No host details in the repo",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "HI03",
+      "title": "Guarded runners",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "HI04",
+      "title": "Menu over shell",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so capabilities are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "PW01",
+      "title": "Static by default",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so the preset is unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "PW02",
+      "title": "Verify the built site",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so the preset is unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "PW03",
+      "title": "Published content only",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so the preset is unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "WA01",
+      "title": "Screens are shown, and approved first",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so the preset is unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "WA02",
+      "title": "Speed is measured",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so the preset is unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "A01",
+      "title": "Entry files import the kit",
+      "result": "PASS",
+      "evidence": "CLAUDE.md imports core, owner defaults and VERSION, and they exist (fresh-session and resume probes: judgment review)",
+      "how": "script"
+    },
+    {
+      "id": "A02",
+      "title": "Lookup stays out of context",
+      "result": "PASS",
+      "evidence": "no lookup file imported; 0 path rule file(s), each with paths:",
+      "how": "script"
+    },
+    {
+      "id": "A03",
+      "title": "Skills and subagents are project files",
+      "result": "NOT APPLICABLE",
+      "evidence": "no review subagents",
+      "how": "script"
+    },
+    {
+      "id": "A04",
+      "title": "No plugin delivery",
+      "result": "PASS",
+      "evidence": "kit 0.3.0 at 140964038597; 20 managed files match the lock",
+      "how": "script"
+    },
+    {
+      "id": "A05",
+      "title": "Settings are project-owned",
+      "result": "PASS",
+      "evidence": "settings deny self-edits and admin merges",
+      "how": "script"
+    },
+    {
+      "id": "A06",
+      "title": "Wait on a watcher",
+      "result": "FAIL",
+      "evidence": "no watcher script (wait-for.*) tracked",
+      "how": "script"
+    },
+    {
+      "id": "A07",
+      "title": "Context budget",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "A08",
+      "title": "Push coherent changes",
+      "result": "UNKNOWN",
+      "evidence": "judgment-only: settled by the judgment review",
+      "how": "judgment"
+    },
+    {
+      "id": "A09",
+      "title": "Shell lessons",
+      "result": "PASS",
+      "evidence": "3 shell and workflow files scanned; no unjustified trap",
+      "how": "script"
+    },
+    {
+      "id": "A10",
+      "title": "Merging from a cloud session",
+      "result": "PASS",
+      "evidence": "none of the last 2 commits carry a Claude trailer",
+      "how": "script"
+    },
+    {
+      "id": "A11",
+      "title": "One required check behind a ruleset",
+      "result": "PASS",
+      "evidence": "ruleset main-protection: PR only, squash only, no bypass, requires ci, harness-audit",
+      "how": "script"
+    },
+    {
+      "id": "A12",
+      "title": "Tier-3 guard",
+      "result": "UNKNOWN",
+      "evidence": "no valid profile, so tier-3 paths are unknown",
+      "how": "applicability"
+    },
+    {
+      "id": "A13",
+      "title": "Unattended PRs need real identity",
+      "result": "PASS",
+      "evidence": ".github/workflows/harness-update.yml opens PRs with the HARNESS_TOKEN secret (an App or owner-created token); whether the secret exists: judgment review",
+      "how": "script"
+    }
+  ]
+}
