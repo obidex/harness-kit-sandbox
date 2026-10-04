@@ -20,6 +20,8 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 `kit.lock.json` lists every kit-managed file with its hash; `profile.json` is the project's own.
 
 Install in a project (from its root): `node <kit checkout>/.harness/tools/harness.mjs init --version
-X.Y.Z --preset web-app`, then fill `.harness/profile.json`, add the `HARNESS_TOKEN` secret (adapter
-A13) and require the `harness-audit` check. After that, `harness-update` keeps it current. Only presets in use are built;
+X.Y.Z --preset web-app`, then fill `.harness/profile.json` and add `.github/harness-settings.json`
+(`node .harness/tools/hands.mjs export --repo owner/name` writes today's settings). The owner's hands
+App (A14) then applies those settings and keeps the kit current from the control repository; the
+templates for it are `templates/hands/`. Only presets in use are built;
 others are defined when a real project needs them, by what makes them different (K001).

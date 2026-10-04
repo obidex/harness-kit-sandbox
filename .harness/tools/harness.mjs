@@ -28,8 +28,9 @@
 // manages takes effect on the update that installs it. A version older than 0.4.0 has no such entry
 // point, and this tool applies it instead.
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, mkdtempSync, rmdirSync, readdirSync } from 'node:fs';
-import { join, dirname, resolve, basename } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, mkdtempSync, rmdirSync, readdirSync, lstatSync } from 'node:fs';
+const lstatExists = (p) => { try { lstatSync(p); return true; } catch { return false; } };
+import { join, dirname, resolve, basename, isAbsolute, normalize } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -46,7 +47,16 @@ const OWNED_IN_HARNESS = new Set(['.harness/profile.json', LOCK, '.harness/audit
 const die = (msg) => { console.error(`harness: ${msg}`); process.exit(1); };
 const say = (msg) => console.log(`harness: ${msg}`);
 const run = (c, a, o = {}) => execFileSync(c, a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...o }).trim();
-const at = (p) => join(root, p);
+// a path from a lock is project data: it must stay inside the project and never pass through a symlink
+const at = (p) => {
+  if (typeof p !== 'string' || !p || isAbsolute(p) || normalize(p).split(/[\\/]/).includes('..')) die(`refusing a path outside the project: ${p}`);
+  let cur = root;
+  for (const part of normalize(p).split(/[\\/]/)) {
+    cur = join(cur, part);
+    if (lstatExists(cur) && lstatSync(cur).isSymbolicLink()) die(`refusing a kit path through a symlink: ${p}`);
+  }
+  return cur;
+};
 const readLock = () => (existsSync(at(LOCK)) ? JSON.parse(readFileSync(at(LOCK), 'utf8')) : null);
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+$/;
 // the entry point one version's tool calls on another's; `__apply --protocol` prints it (the handshake)

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Repository settings as code (K007)",
+  "description": "A project's .github/harness-settings.json: what the hands App applies to the repository from its default branch. Lists only what it manages; anything not named here is left as it is unless prune says otherwise.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repository"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "repository": {
+      "description": "Repository settings, as the REST API names them (PATCH /repos/{owner}/{repo}).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow_auto_merge": { "type": "boolean" },
+        "allow_squash_merge": { "type": "boolean" },
+        "allow_merge_commit": { "type": "boolean" },
+        "allow_rebase_merge": { "type": "boolean" },
+        "allow_update_branch": { "type": "boolean" },
+        "delete_branch_on_merge": { "type": "boolean" },
+        "squash_merge_commit_title": { "enum": ["PR_TITLE", "COMMIT_OR_PR_TITLE"] },
+        "squash_merge_commit_message": { "enum": ["PR_BODY", "COMMIT_MESSAGES", "BLANK"] },
+        "merge_commit_title": { "enum": ["PR_TITLE", "MERGE_MESSAGE"] },
+        "merge_commit_message": { "enum": ["PR_BODY", "PR_TITLE", "BLANK"] },
+        "has_issues": { "type": "boolean" },
+        "has_wiki": { "type": "boolean" },
+        "has_projects": { "type": "boolean" },
+        "web_commit_signoff_required": { "type": "boolean" }
+      }
+    },
+    "rulesets": {
+      "description": "Branch rulesets, matched to the live ones by name, in the REST API's shape (POST /repos/{owner}/{repo}/rulesets).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "target", "enforcement", "conditions", "rules"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "target": { "enum": ["branch", "tag"] },
+          "enforcement": { "enum": ["active", "evaluate", "disabled"] },
+          "conditions": { "type": "object" },
+          "bypass_actors": { "type": "array" },
+          "rules": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["type"] } }
+        }
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "color"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "color": { "type": "string", "pattern": "^[0-9a-fA-F]{6}$" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "prune": {
+      "description": "Also delete live rulesets or labels this file does not name. Off by default.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "rulesets": { "type": "boolean" }, "labels": { "type": "boolean" } }
+    }
+  }
+}

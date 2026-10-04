@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseYaml, triggers, gh, validateSchema, fileHash } from './lib.mjs';
 import { scrub } from './scrub.mjs';
+import { plan as settingsPlan, validate as settingsValidate, SETTINGS_PATH } from './hands.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
@@ -74,15 +75,16 @@ const deny = settings?.permissions?.deny || [];
 const api = {};
 async function load() {
   if (!repo) return;
-  const [rs, labels, runs, issues, pulls, comments] = await Promise.all([
+  const [rs, labels, runs, issues, pulls, comments, repoInfo] = await Promise.all([
     gh(`/repos/${repo}/rulesets?includes_parents=true`),
     gh(`/repos/${repo}/labels?per_page=100`),
     gh(`/repos/${repo}/actions/runs?branch=${encodeURIComponent(defaultBranch)}&event=push&per_page=30`),
     gh(`/repos/${repo}/issues?state=open&per_page=100`),
     gh(`/repos/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=30`),
     gh(`/repos/${repo}/issues/comments?sort=updated&direction=desc&per_page=50`),
+    gh(`/repos/${repo}`),
   ]);
-  api.rulesets = rs; api.labels = labels; api.runs = runs; api.issues = issues; api.pulls = pulls; api.comments = comments;
+  api.rulesets = rs; api.labels = labels; api.runs = runs; api.issues = issues; api.pulls = pulls; api.comments = comments; api.repo = repoInfo;
   if (rs.status === 200 && Array.isArray(rs.data)) {
     api.rulesetDetails = await Promise.all(rs.data.filter((r) => r.target === 'branch').map((r) => gh(`/repos/${repo}/rulesets/${r.id}`)));
   }
@@ -247,9 +249,41 @@ const checks = {
   },
   A13() {
     const upd = workflows.find((w) => /harness\.mjs\s+update/.test(w.text));
-    if (!upd) return [NA, 'no unattended maintenance workflow installed'];
-    return /secrets\.HARNESS_TOKEN|create-github-app-token/.test(upd.text) ? [PASS, `${upd.file} opens PRs with a GitHub App or the HARNESS_TOKEN secret (an owner-created token); whether either is set: judgment review`]
-      : [FAIL, `${upd.file} opens PRs without an App or owner-created token, so its checks may never run`];
+    if (upd) {
+      return /secrets\.HARNESS_TOKEN|create-github-app-token/.test(upd.text) ? [PASS, `${upd.file} opens PRs with a GitHub App or the HARNESS_TOKEN secret (an owner-created token); whether either is set: judgment review`]
+        : [FAIL, `${upd.file} opens PRs without an App or owner-created token, so its checks may never run`];
+    }
+    if (!has('.harness/kit.lock.json')) return [NA, 'the kit is not installed here'];
+    // updates come from the control repository's hands App (A14): judge the PRs it opened
+    if (api.pulls?.status !== 200) return [UNKNOWN, `maintenance comes from the hands App; its PRs were not read (${noAccess(api.pulls)})`];
+    const maint = api.pulls.data.filter((p) => /^harness\/kit-/.test(p.head?.ref || ''));
+    if (!maint.length) return [UNKNOWN, 'no maintenance PR among the 30 most recent: nothing to judge yet'];
+    const last = maint[0];
+    // UNKNOWN, not FAIL: the update that brings 0.5.0 may still come from the old per-repo token,
+    // and a strict FAIL here would then block every later PR until the App's next update
+    if (last.user?.type !== 'Bot') return [UNKNOWN, `the latest maintenance PR #${last.number} was opened by ${last.user?.login}, not the hands App; the next one should be (judgment review)`];
+    return last.merged_at ? [PASS, `the latest maintenance PR #${last.number} was opened by ${last.user.login} and merged by auto-merge after its checks`]
+      : [UNKNOWN, `the latest maintenance PR #${last.number} (${last.user.login}) is ${last.state} and not merged yet`];
+  },
+  A14() {
+    // not FAIL: a kit update must not turn a project's audit red before it enrols (UNKNOWN is never strict)
+    if (!has(SETTINGS_PATH)) return [UNKNOWN, `no ${SETTINGS_PATH}: repository settings, rulesets and labels are not code yet (enrol with hands.mjs export)`];
+    let desired;
+    try { desired = JSON.parse(read(SETTINGS_PATH)); } catch (e) { return [FAIL, `${SETTINGS_PATH} is not JSON: ${e.message}`]; }
+    const errors = settingsValidate(desired, root);
+    if (errors.length) return [FAIL, short(errors.join('; '), 400)];
+    if (!api.repo || api.repo.status !== 200 || !api.rulesetDetails || api.rulesetDetails.some((r) => r.status !== 200) || api.labels?.status !== 200) {
+      return [UNKNOWN, `${SETTINGS_PATH} is valid; whether the live repository matches it was not read (${noAccess(api.repo)})`];
+    }
+    // bypass lists are returned only to admins: compare them only when this token can read them
+    const rulesets = api.rulesetDetails.map((r) => r.data);
+    const want = Array.isArray(rulesets[0]?.bypass_actors) || !rulesets.length ? desired
+      : { ...desired, rulesets: (desired.rulesets || []).map(({ bypass_actors, ...r }) => r) };
+    const all = settingsPlan(repo, want, { repository: api.repo.data, rulesets, labels: api.labels.data });
+    // drift is UNKNOWN, not FAIL: the PR that changes the file differs from live until hands-settings
+    // applies it after the merge, and a run that cannot apply it alerts on its own (K007)
+    return all.length ? [UNKNOWN, short(`the live repository differs from ${SETTINGS_PATH} until hands-settings applies it: ${all.map((s) => s.what).join('; ')}`, 400)]
+      : [PASS, `${SETTINGS_PATH} is valid and the live repository matches it`];
   },
 
   // ---- core
@@ -354,7 +388,10 @@ const checks = {
     if (!tracked.includes('.github/workflows/harness-scrub.yml')) problems.push('no harness-scrub.yml removes attribution from posted bodies (K006)');
     // behaviour: recent bodies posted after the scrubber was installed (it does not rewrite history)
     const since = (git('log', '--diff-filter=A', '--format=%cI', '-1', '--', '.github/workflows/harness-scrub.yml') || '').trim();
-    const after = (x) => x.body && since && Date.parse(x.created_at) > Date.parse(since);
+    // a body the scrubber may still be editing (its run takes seconds) is not judged yet: the audit runs
+    // on the same PR event as the scrubber, and judged its own fresh PR body before it was cleaned
+    const settled = Date.now() - 10 * 60 * 1000;
+    const after = (x) => x.body && since && Date.parse(x.created_at) > Date.parse(since) && Date.parse(x.updated_at || x.created_at) < settled;
     const bodies = [...(api.pulls?.status === 200 ? api.pulls.data : []).filter(after).map((x) => [`PR #${x.number}`, x.body]),
       ...(api.issues?.status === 200 ? api.issues.data : []).filter((x) => after(x) && !x.pull_request).map((x) => [`issue #${x.number}`, x.body]),
       ...(api.comments?.status === 200 ? api.comments.data : []).filter(after).map((x) => [`comment on #${x.issue_url.split('/').pop()}`, x.body])];

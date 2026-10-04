@@ -20,7 +20,7 @@
   `.harness/templates/skills/<name>/` and are installed as `.claude/skills/<name>/` (kit-managed).
 - **A04 No plugin delivery.** Cloud threads do not load plugins, so kit files are installed as a
   pinned copy in each project by `.harness/tools/harness.mjs`, listed with their hashes in
-  `.harness/kit.lock.json`, and changed only by maintenance PRs (`harness-update`).
+  `.harness/kit.lock.json`, and changed only by maintenance PRs (`hands-update`, A14).
 - **A05 Settings are project-owned.** The kit does not manage `.claude/settings.json` (K001
   boundary). It records what projects keep there today: attribution turned off; deny `--admin`
   merges, force pushes, destructive git, `.env*` reads and edits to the settings file itself; a
@@ -54,11 +54,15 @@
   `edited` so a body fix re-runs it.
 - **A13 Unattended PRs need real identity.** Events caused by `GITHUB_TOKEN` do not start new
   workflow runs, and Actions may be barred from creating or approving PRs, so a maintenance PR that
-  must run checks and auto-merge is opened by a GitHub App (variable `HARNESS_APP_ID`, secret
-  `HARNESS_APP_KEY`; preferred, since its tokens are minted per run and nothing expires) or a
-  fine-grained token the owner creates once (O01, O02), stored as the `HARNESS_TOKEN` secret. It needs Contents, Pull requests,
-  Workflows (the PR changes `.github/workflows/harness-*.yml`) and Issues read/write. Auto-merge
-  also needs the repository setting enabled and a required check to wait for.
+  must run checks and auto-merge is opened by the owner's hands App (A14), whose tokens are minted
+  per run and never expire. Auto-merge also needs the repository setting enabled and a required
+  check to wait for, both of which the settings file declares.
+- **A14 One App holds GitHub's hands.** The owner's single GitHub App is used only by reviewed
+  workflows on the control repository's main branch (its key sits in an environment only `main`
+  can use), never by an AI session. Each job mints a token for one repository and only the
+  permissions it needs. Repository settings, rulesets with their required checks, auto-merge and
+  labels are code: `.github/harness-settings.json`, checked on the PR and applied after merge.
+  Every write is logged in the control repository; a failure alerts once by Telegram (O10).
 
 ## Records
 
@@ -77,3 +81,4 @@
 | A11 | GitHub hosts the repo | The ruleset requires the aggregate check, PR only, squash only, no bypass. | ERP STRATEGIST §2 · D289; WEB AGENTS §6 · W100 | script: read rulesets via the API; UNKNOWN without admin read access. |
 | A12 | the profile lists tier-3 paths | The guard runs on every PR including body edits. | ERP tier3-guard job; WEB tier3-guard step | script: workflow has the guard and the `edited` trigger. |
 | A13 | an unattended PR must pass checks and merge | Maintenance PRs come from an App or owner-created token and their checks run. | K001 (H2); PLATFORM (GITHUB_TOKEN events do not trigger workflows) | script: the maintenance PR's author is the App or token identity and its check runs exist. |
+| A14 | the kit is installed | Settings live in `.github/harness-settings.json` and the live repository matches it; only the hands App's reviewed workflows write them. | K007 (owner 4A) | script: the settings file is valid and the live repository matches it. |
