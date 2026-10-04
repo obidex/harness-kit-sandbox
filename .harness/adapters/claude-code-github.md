@@ -54,8 +54,9 @@
   `edited` so a body fix re-runs it.
 - **A13 Unattended PRs need real identity.** Events caused by `GITHUB_TOKEN` do not start new
   workflow runs, and Actions may be barred from creating or approving PRs, so a maintenance PR that
-  must run checks and auto-merge is opened by a GitHub App or a fine-grained token the owner
-  creates once (O01, O02), stored as the `HARNESS_TOKEN` secret. It needs Contents, Pull requests,
+  must run checks and auto-merge is opened by a GitHub App (variable `HARNESS_APP_ID`, secret
+  `HARNESS_APP_KEY`; preferred, since its tokens are minted per run and nothing expires) or a
+  fine-grained token the owner creates once (O01, O02), stored as the `HARNESS_TOKEN` secret. It needs Contents, Pull requests,
   Workflows (the PR changes `.github/workflows/harness-*.yml`) and Issues read/write. Auto-merge
   also needs the repository setting enabled and a required check to wait for.
 

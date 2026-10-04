@@ -37,7 +37,7 @@
 | ID | Topic | ERP | WEB | Kit position |
 |---|---|---|---|---|
 | X01 | Migration approval act | A reaction on a hash-carrying comment | The owner's own review on the head commit | Both satisfy DB02. Owner to pick one in H3/H4, or keep both as local mechanisms. |
-| X02 | Thread model | Sonnet or Opus by task (D275) | Opus for every thread (run-card §1) | O06 (owner default) says by task; WEB departs and should align or record an exception. |
+| X02 | Thread model | Sonnet or Opus by task (D275) | Opus for every thread (run-card §1) | O06 (owner default) says by task. Resolved by the owner (K006, 3A): WEB aligns to O06 when it adopts the kit. |
 | X03 | Review scope | Reviewer on tier 3, money, stock, permission diffs (D282) | Reviewer on every code diff (run-card §5) | Both fit C10; WEB's is a tightening, recorded as a profile exception. |
 | X04 | Dependency-bot PRs | Merged as a named rider when grouped minor/patch and green | Never merged; the update is applied in a card's PR | No kit rule yet. Owner decision when a project enrolls. |
 | X05 | Requesting the owner's review on PRs | Not addressed | Forbidden (run-card §6) | The cloud platform auto-requests the requester's review on PRs it opens. O11 says the owner is never a merge gate; requesting review for visibility does not make him one. Needs an owner call if he wants no review requests. |

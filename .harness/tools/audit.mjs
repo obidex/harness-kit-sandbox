@@ -22,6 +22,7 @@ import { join, resolve, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseYaml, triggers, gh, validateSchema, fileHash } from './lib.mjs';
+import { scrub } from './scrub.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
@@ -73,13 +74,15 @@ const deny = settings?.permissions?.deny || [];
 const api = {};
 async function load() {
   if (!repo) return;
-  const [rs, labels, runs, issues] = await Promise.all([
+  const [rs, labels, runs, issues, pulls, comments] = await Promise.all([
     gh(`/repos/${repo}/rulesets?includes_parents=true`),
     gh(`/repos/${repo}/labels?per_page=100`),
     gh(`/repos/${repo}/actions/runs?branch=${encodeURIComponent(defaultBranch)}&event=push&per_page=30`),
     gh(`/repos/${repo}/issues?state=open&per_page=100`),
+    gh(`/repos/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=30`),
+    gh(`/repos/${repo}/issues/comments?sort=updated&direction=desc&per_page=50`),
   ]);
-  api.rulesets = rs; api.labels = labels; api.runs = runs; api.issues = issues;
+  api.rulesets = rs; api.labels = labels; api.runs = runs; api.issues = issues; api.pulls = pulls; api.comments = comments;
   if (rs.status === 200 && Array.isArray(rs.data)) {
     api.rulesetDetails = await Promise.all(rs.data.filter((r) => r.target === 'branch').map((r) => gh(`/repos/${repo}/rulesets/${r.id}`)));
   }
@@ -245,7 +248,7 @@ const checks = {
   A13() {
     const upd = workflows.find((w) => /harness\.mjs\s+update/.test(w.text));
     if (!upd) return [NA, 'no unattended maintenance workflow installed'];
-    return /secrets\.HARNESS_TOKEN/.test(upd.text) ? [PASS, `${upd.file} opens PRs with the HARNESS_TOKEN secret (an App or owner-created token); whether the secret exists: judgment review`]
+    return /secrets\.HARNESS_TOKEN|create-github-app-token/.test(upd.text) ? [PASS, `${upd.file} opens PRs with a GitHub App or the HARNESS_TOKEN secret (an owner-created token); whether either is set: judgment review`]
       : [FAIL, `${upd.file} opens PRs without an App or owner-created token, so its checks may never run`];
   },
 
@@ -345,8 +348,22 @@ const checks = {
     const off = a && a.commit === '' && a.pr === '';
     const log = commitLog(200);
     const gen = log.split('\x1e').filter((c) => /generated with \[?claude|co-authored-by:[^\n]*claude/i.test(c)).length;
-    if (!off) return [FAIL, `.claude/settings.json does not blank attribution.commit and attribution.pr${gen ? `; ${gen} recent commits carry Claude attribution` : ''}`];
-    return gen ? [FAIL, `attribution off in settings, yet ${gen} of the last 200 commits carry it`] : [PASS, 'attribution blanked in settings; none in the last 200 commits'];
+    const problems = [];
+    if (!off) problems.push('.claude/settings.json does not blank attribution.commit and attribution.pr');
+    if (gen) problems.push(`${gen} of the last 200 commits carry Claude attribution`);
+    if (!tracked.includes('.github/workflows/harness-scrub.yml')) problems.push('no harness-scrub.yml removes attribution from posted bodies (K006)');
+    // behaviour: recent bodies posted after the scrubber was installed (it does not rewrite history)
+    const since = (git('log', '--diff-filter=A', '--format=%cI', '-1', '--', '.github/workflows/harness-scrub.yml') || '').trim();
+    const after = (x) => x.body && since && Date.parse(x.created_at) > Date.parse(since);
+    const bodies = [...(api.pulls?.status === 200 ? api.pulls.data : []).filter(after).map((x) => [`PR #${x.number}`, x.body]),
+      ...(api.issues?.status === 200 ? api.issues.data : []).filter((x) => after(x) && !x.pull_request).map((x) => [`issue #${x.number}`, x.body]),
+      ...(api.comments?.status === 200 ? api.comments.data : []).filter(after).map((x) => [`comment on #${x.issue_url.split('/').pop()}`, x.body])];
+    const left = bodies.filter(([, b]) => scrub(b) !== b).map(([w]) => w);
+    if (left.length) problems.push(`${left.length} recent bodies still carry attribution: ${left.slice(0, 5).join(', ')}`);
+    if (problems.length) return [FAIL, short(problems.join('; '), 400)];
+    const allRead = [api.pulls, api.issues, api.comments].every((r) => r?.status === 200);
+    if (!allRead) return [UNKNOWN, `settings, the last 200 commits and the scrubber hold; recent PR, issue and comment bodies not read (${noAccess([api.pulls, api.issues, api.comments].find((r) => r?.status !== 200))})`];
+    return [PASS, `attribution blanked in settings; none in the last 200 commits; harness-scrub.yml installed; none left in ${bodies.length} PR, issue and comment bodies posted since it was`];
   },
 
   // ---- capabilities
