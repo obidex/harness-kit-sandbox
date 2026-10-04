@@ -51,6 +51,9 @@ jobs:
       - name: Kit files match the lock
         if: steps.scope.outputs.run == '1'
         run: node .harness/tools/harness.mjs status
+      - name: The settings file is valid (A14)
+        if: steps.scope.outputs.run == '1'
+        run: node .harness/tools/hands.mjs validate .
       - name: Structural audit (a new FAIL against .harness/audit-baseline.json fails the check)
         if: steps.scope.outputs.run == '1'
         env:
