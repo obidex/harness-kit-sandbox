@@ -83,6 +83,10 @@ jobs:
           if [ "$(printf '%s\n%s\n' "$TARGET" "$CURRENT" | sort -V | head -1)" = "$TARGET" ]; then verb="roll back"; else verb="update"; fi
           node .harness/tools/harness.mjs update --version "$TARGET"
           node .harness/tools/harness.mjs status
+          # commit as the identity that opens the PR, so the squash carries no Co-authored-by (O09)
+          if [ -z "$GIT_NAME" ] && me="$(gh api user --jq '"\(.login) \(.id)"' 2>/dev/null)"; then
+            GIT_NAME="${me% *}"; GIT_EMAIL="${me#* }+${me% *}@users.noreply.github.com"
+          fi
           git config user.name "${GIT_NAME:-harness-kit}"
           git config user.email "${GIT_EMAIL:-harness-kit@users.noreply.github.com}"
           git switch -c "$branch"
