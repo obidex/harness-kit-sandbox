@@ -1,16 +1,16 @@
 {
-  "version": "0.4.1",
-  "commit": "7afaf42d31424261d91e7a089b510cbf0fa8af29",
+  "version": "0.4.0",
+  "commit": "ea7c81accc779e97470f3fb8c24efd97be3b3e32",
   "source": "https://github.com/obidex/harness-kit",
   "previous": {
-    "version": "0.4.0",
-    "commit": "ea7c81accc779e97470f3fb8c24efd97be3b3e32"
+    "version": "0.4.1",
+    "commit": "7afaf42d31424261d91e7a089b510cbf0fa8af29"
   },
   "files": {
     ".claude/skills/correct/SKILL.md": "0f75f651c25a4a0a07bd54fa2aaa5c9f04288b0d74ea736ebbbfa0448e5875d7",
     ".github/workflows/harness-audit.yml": "b7ddf8e416198685767629e56b8c1373687ec7912674e7106f2dc79fc821a552",
     ".github/workflows/harness-scrub.yml": "2ba96796290577ec37c0fac1445985e5e3ba6b08cf23f2ce780a8e41c7f2ed76",
-    ".github/workflows/harness-update.yml": "b7b7f4d566790aa1f3ff9e5a88761bb21c0c770e868fa0934945f171f9c6581b",
+    ".github/workflows/harness-update.yml": "befb04ac1688c5968574761997786b1e1b2c8fcf2bbdf76239416a2690f6ddec",
     ".harness/adapters/claude-code-github.md": "563e126989bc6792038723d7f275d01fbecc8ce12f399440d7f3beb835cfd35a",
     ".harness/audit/README.md": "542af22b58d76deef553b3c8cf09e9d2a4cdd009eef0ce91f52fe99de6754e9b",
     ".harness/capabilities.md": "6cfb3d8cac641ca980fc8176c4522bcf53ecd058a32c577d912f64109719392a",
@@ -28,6 +28,6 @@
     ".harness/tools/harness.mjs": "058a27cb227f3ff5ddf938e8cef1837ac30afeaddcf2d34352b469a51d93faba",
     ".harness/tools/lib.mjs": "5c5f17f10de3137401517a52ffe21ac6ed7544f5328a362be6fbdf07746dee7f",
     ".harness/tools/scrub.mjs": "ef4d95140864053e886f47b8d688768e299a94391ce1f72dfc2f4fd5f053a7a4",
-    ".harness/VERSION": "f62184cee8787f2f6941c82041a5725d4edc9aa293ebe5dbf664406e82ec1fe1"
+    ".harness/VERSION": "40b8eb4000a913a7791090535f291d3d369874162a89ef3c9e3d4e887a1b9e79"
   }
 }
