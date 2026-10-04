@@ -1,0 +1,28 @@
+{
+  "version": "0.3.0",
+  "commit": "1409640385975b0670df560ed9c669041685a6e3",
+  "source": "https://github.com/obidex/harness-kit",
+  "previous": null,
+  "files": {
+    ".claude/skills/correct/SKILL.md": "0f75f651c25a4a0a07bd54fa2aaa5c9f04288b0d74ea736ebbbfa0448e5875d7",
+    ".github/workflows/harness-audit.yml": "b7ddf8e416198685767629e56b8c1373687ec7912674e7106f2dc79fc821a552",
+    ".github/workflows/harness-update.yml": "de037348370f6b052af89ee47a925215d1f298919bdf5863bfb7d6c0025df938",
+    ".harness/adapters/claude-code-github.md": "1addcf71e51f8de53e8bb2c0a368f6eec9d62b82cd6024b9f0697fd867dfcfc7",
+    ".harness/audit/README.md": "542af22b58d76deef553b3c8cf09e9d2a4cdd009eef0ce91f52fe99de6754e9b",
+    ".harness/capabilities.md": "6cfb3d8cac641ca980fc8176c4522bcf53ecd058a32c577d912f64109719392a",
+    ".harness/catalogue/core.md": "cbe3483cd020e2a12de59fbbdff5a781643fb839430f45abc3fbc02a0d47a37c",
+    ".harness/catalogue/owner-defaults.md": "3b693bd7ace3441b01908573f0c2e3faf56da49339451c1a2aae7694f95d955b",
+    ".harness/catalogue/README.md": "11e09015fe7cfa7685f2c39639235a84523367b89ecbec70d1a34547fd5d80dc",
+    ".harness/core.md": "e140b6933410790454cc1477568b79b5bf76eec5247350bc50962044d223b072",
+    ".harness/owner-defaults.md": "3bb603b056864bcf8cceb80ab29be2dfd8f47f14d8b8f8a2508b83fdb7b7c579",
+    ".harness/presets/public-website.md": "35022777337e07dbbd0081cbe1d2838330dd3de9c67dcc307eff87651354d922",
+    ".harness/presets/web-app.md": "57f218dd1f2fa3d889ee44ca549fd3d0d6b16f72829bec56c04fa22831af52fd",
+    ".harness/profile.schema.json": "d07eb9d40eef0f992889c9f5a5497bcf0db57d260833919552449bfd529ca87b",
+    ".harness/project-specific.md": "d5b69efc8c3045c175341463f17dba84a64595e14edbe1d1aa60200218ce511e",
+    ".harness/README.md": "a5a3aa64c576324ae4bd811f5ca91ae12a1e5fde3c16cf1323b2457c5448144c",
+    ".harness/tools/audit.mjs": "5abd4f1577daf218d74ab5e444ce65f5a45761741eaaac3afc53432003971432",
+    ".harness/tools/harness.mjs": "4006f5c3fe10bc8248a67cacf3071798bfddda2edff047f893343ff9cad976fa",
+    ".harness/tools/lib.mjs": "5c5f17f10de3137401517a52ffe21ac6ed7544f5328a362be6fbdf07746dee7f",
+    ".harness/VERSION": "d915cc95d6ca8f47ae297713ed46d4e5c5d99ddd29fc3c61e263bdf305f2b5b0"
+  }
+}

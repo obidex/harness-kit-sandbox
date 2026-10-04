@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/obidex/harness-kit/.harness/profile.schema.json",
+  "title": "Harness Kit project profile",
+  "description": "One per project, at .harness/profile.json. Project-owned: the kit never overwrites it. Holds facts and pointers, never secrets, host details or private data; business rules are pointers to the project's own files.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "preset", "capabilities", "stack", "commands", "branches", "environments", "modules", "business_rules", "permissions", "risk", "canon", "exceptions"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "repo"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "repo": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+        "summary": { "type": "string" }
+      }
+    },
+    "preset": { "enum": ["web-app", "public-website", "none"], "description": "A named set of capabilities (.harness/presets/)." },
+    "capabilities": {
+      "description": "The enabled capabilities after the preset and any additions or removals.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["database", "auth", "public-interface", "deployments", "recurring-jobs", "sensitive-data", "bilingual", "host-infra"] }
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["languages", "frameworks", "package_manager"],
+      "properties": {
+        "languages": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "frameworks": { "type": "array", "items": { "type": "string" } },
+        "package_manager": { "type": "string" },
+        "runtime": { "type": "string" },
+        "services": { "type": "array", "items": { "type": "string" }, "description": "External services by kind and product name, never ids or URLs." }
+      }
+    },
+    "commands": {
+      "description": "Commands a contributor runs locally. Missing ones are omitted, never faked.",
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "required": ["install", "build", "test"],
+      "properties": {
+        "install": { "type": "string" },
+        "build": { "type": "string" },
+        "lint": { "type": "string" },
+        "typecheck": { "type": "string" },
+        "test": { "type": "string" },
+        "verify": { "type": "string" },
+        "reference": { "type": "string", "description": "Regenerates generated reference files (C17, DB05)." }
+      }
+    },
+    "branches": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "required_checks", "merge_method"],
+      "properties": {
+        "default": { "type": "string" },
+        "required_checks": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "merge_method": { "enum": ["squash", "merge", "rebase"] },
+        "branch_prefixes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "environments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "deploys_from"],
+        "properties": {
+          "name": { "type": "string" },
+          "deploys_from": { "type": "string", "description": "A branch name or 'release'." },
+          "probe": { "type": "string", "description": "A path probed after a deploy, e.g. '/'. Never a full private URL." },
+          "real_data": { "type": "boolean", "description": "True once real users or data depend on it (DP02)." }
+        }
+      }
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "paths"],
+        "properties": {
+          "name": { "type": "string" },
+          "paths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "rules": { "type": "string", "description": "Path to the module's rule file, e.g. .claude/rules/modules/<name>.md." }
+        }
+      }
+    },
+    "business_rules": {
+      "description": "Pointers to where the project's business rules live (rulebook sections, decisions, specs). Never the rules' text.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_only"],
+      "properties": {
+        "owner_only": { "type": "array", "items": { "type": "string" }, "description": "Actions reserved to the owner in this project (O01)." },
+        "settings_file": { "type": "string", "description": "Where the project's Claude Code settings live; project-owned (A05)." }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier3_paths"],
+      "properties": {
+        "tier3_paths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "review_required_for": { "type": "array", "items": { "type": "string" }, "description": "Domains beyond tier 3 whose diffs need C10 review, e.g. 'money', 'permissions', 'all-code'." },
+        "turn_budget": { "type": "integer", "minimum": 1, "default": 60 }
+      }
+    },
+    "reviewers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "array", "items": { "type": "string" }, "description": "Review seats that gate a merge (C10)." },
+        "optional": { "type": "array", "items": { "type": "string" }, "description": "Advisory reviewers, never waited on (O07)." }
+      }
+    },
+    "canon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rulebook", "state", "decisions"],
+      "properties": {
+        "rulebook": { "type": "string" },
+        "state": { "type": "string" },
+        "decisions": { "type": "string" },
+        "decision_prefix": { "type": "string" },
+        "generated": { "type": "array", "items": { "type": "string" } },
+        "caps": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "description": "File path → maximum bytes (C17)." }
+      }
+    },
+    "alerts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "channel": { "enum": ["telegram", "github-issue", "none"] },
+        "secret_name": { "type": "string", "description": "The name of the secret holding the alert credential; never its value." }
+      }
+    },
+    "performance": {
+      "type": "array",
+      "description": "Speed targets (WA02).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "target", "profile"],
+        "properties": {
+          "action": { "type": "string" },
+          "target": { "type": "string" },
+          "profile": { "type": "string" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "exceptions": {
+      "description": "Where this project departs from a kit rule. Tightening only, unless a kit decision allows more.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule", "local_rule", "why", "decision"],
+        "properties": {
+          "rule": { "type": "string", "pattern": "^[A-Z]{1,2}[0-9]{2}$" },
+          "local_rule": { "type": "string" },
+          "why": { "type": "string" },
+          "decision": { "type": "string", "description": "The project decision that records it." }
+        }
+      }
+    }
+  }
+}

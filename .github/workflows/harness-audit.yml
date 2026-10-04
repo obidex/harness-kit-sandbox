@@ -1,0 +1,75 @@
+# Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# The kit's structural audit (.harness/audit/README.md §1). On a pull request it runs fully only when
+# kit, entry, agent or workflow files changed, and otherwise passes at once, so it can be a required
+# check. Weekly it also reads GitHub (rulesets, default-branch runs) and reports to one issue.
+name: harness-audit
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness-audit:
+    name: harness-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Relevant change?
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "run=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          changed="$(git diff --name-only "$BASE" HEAD)"
+          if printf '%s\n' "$changed" | grep -Eq '^(\.harness/|CLAUDE\.md$|AGENTS\.md$|\.claude/|\.github/)'; then
+            echo "run=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "No kit, entry, agent or workflow file changed: nothing to audit." >> "$GITHUB_STEP_SUMMARY"
+            echo "run=0" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.run == '1'
+        with:
+          node-version: 22
+      - name: Kit files match the lock
+        if: steps.scope.outputs.run == '1'
+        run: node .harness/tools/harness.mjs status
+      - name: Structural audit (a new FAIL against .harness/audit-baseline.json fails the check)
+        if: steps.scope.outputs.run == '1'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.event_name == 'pull_request' && '' || github.repository }}
+        run: |
+          set -euo pipefail
+          node .harness/tools/audit.mjs . ${REPO:+--repo "$REPO"} --md "$RUNNER_TEMP/audit.md" --json "$RUNNER_TEMP/audit.json" --strict
+      - name: Report
+        if: always() && steps.scope.outputs.run == '1'
+        run: |
+          [ -f "$RUNNER_TEMP/audit.md" ] && cat "$RUNNER_TEMP/audit.md" >> "$GITHUB_STEP_SUMMARY" || true
+      - name: One tracking issue on a failed scheduled run
+        if: failure() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="harness-audit: scheduled audit failing"
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          n="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$n" ]; then gh issue comment "$n" --body "Still failing: $url"; else gh issue create --title "$title" --body "FAIL: $url"; fi

@@ -1,0 +1,6 @@
+{
+  "attribution": { "commit": "", "pr": "", "sessionUrl": false },
+  "permissions": {
+    "deny": ["Edit(.claude/settings.json)", "Read(.env*)", "Bash(gh pr merge --admin*)", "Bash(gh pr merge * --admin*)"]
+  }
+}

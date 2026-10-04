@@ -1,0 +1,46 @@
+{
+  "project": {
+    "name": "harness-kit-sandbox",
+    "repo": "obidex/harness-kit-sandbox",
+    "summary": "Disposable sandbox that proves the harness kit's install, update and rollback on real GitHub."
+  },
+  "preset": "none",
+  "capabilities": [],
+  "stack": {
+    "languages": ["JavaScript"],
+    "frameworks": [],
+    "package_manager": "npm",
+    "runtime": "Node 22",
+    "services": []
+  },
+  "commands": {
+    "install": "npm ci",
+    "build": "npm run build",
+    "test": "npm test"
+  },
+  "branches": {
+    "default": "main",
+    "required_checks": ["ci", "harness-audit"],
+    "merge_method": "squash",
+    "branch_prefixes": ["harness/", "claude/"]
+  },
+  "environments": [],
+  "modules": [],
+  "business_rules": ["AGENTS.md"],
+  "permissions": {
+    "owner_only": ["entering or rotating secrets", "repository settings"],
+    "settings_file": ".claude/settings.json"
+  },
+  "risk": {
+    "tier3_paths": [".github/**", ".claude/**", ".harness/**"],
+    "review_required_for": [],
+    "turn_budget": 60
+  },
+  "canon": {
+    "rulebook": "AGENTS.md",
+    "decision_prefix": "S",
+    "generated": [],
+    "caps": { "AGENTS.md": 12288, "CLAUDE.md": 2560 }
+  },
+  "exceptions": []
+}

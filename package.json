@@ -1,0 +1,1 @@
+{ "name": "harness-kit-sandbox", "private": true, "type": "module", "scripts": { "build": "node --check src/app.js", "test": "node --test" } }

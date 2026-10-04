@@ -1,0 +1,93 @@
+# Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Unattended kit maintenance (K001): weekly, or on dispatch, opens a PR that moves the pinned kit to
+# the newest release (or to the version given, which is how a rollback runs), and turns on
+# auto-merge so it lands when the required checks pass. Adapter A13: the PR is opened with the
+# HARNESS_TOKEN secret (a GitHub App token or an owner-created fine-grained token with Contents,
+# Pull requests, Workflows and Issues read/write), because events from GITHUB_TOKEN start no checks.
+name: harness-update
+
+on:
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Kit version to pin (empty = newest release; an older version rolls back)
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.HARNESS_TOKEN }}
+      WANT: ${{ inputs.version }}
+    steps:
+      - name: The token exists
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "INFRA: secret HARNESS_TOKEN is not set (adapter A13)"; exit 1; fi
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.HARNESS_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pick the target version
+        id: pick
+        run: |
+          set -euo pipefail
+          current="$(cat .harness/VERSION)"
+          if [ -n "$WANT" ]; then
+            printf '%s' "$WANT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "FAIL: version '$WANT' is not X.Y.Z"; exit 1; }
+            target="$WANT"
+          else
+            target="$(node .harness/tools/harness.mjs latest)"
+          fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          if [ "$target" = "$current" ]; then echo "Kit $current is current: nothing to do." >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Open the maintenance PR and turn on auto-merge
+        if: steps.pick.outputs.target != steps.pick.outputs.current
+        env:
+          CURRENT: ${{ steps.pick.outputs.current }}
+          TARGET: ${{ steps.pick.outputs.target }}
+          GIT_NAME: ${{ vars.HARNESS_GIT_NAME }}
+          GIT_EMAIL: ${{ vars.HARNESS_GIT_EMAIL }}
+        run: |
+          set -euo pipefail
+          branch="harness/kit-$TARGET"
+          if gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' | grep -q .; then
+            echo "A PR for kit $TARGET is already open." >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          if [ "$(printf '%s\n%s\n' "$TARGET" "$CURRENT" | sort -V | head -1)" = "$TARGET" ]; then verb="roll back"; else verb="update"; fi
+          node .harness/tools/harness.mjs update --version "$TARGET"
+          node .harness/tools/harness.mjs status
+          git config user.name "${GIT_NAME:-harness-kit}"
+          git config user.email "${GIT_EMAIL:-harness-kit@users.noreply.github.com}"
+          git switch -c "$branch"
+          git add -A .harness .github/workflows
+          git commit -q -m "chore(harness): $verb kit $CURRENT to $TARGET"
+          git push -q --force origin "$branch"   # harness/* branches belong to this workflow; a leftover from a closed PR is replaced
+          body="$(printf 'Kit %s → %s (%s), opened by harness-update.\n\nOnly kit-managed files change (the paths in .harness/kit.lock.json); project-owned files are untouched. Release notes: https://github.com/obidex/harness-kit/blob/v%s/CHANGELOG.md\n\nRoll back: run harness-update with version %s.' "$CURRENT" "$TARGET" "$verb" "$TARGET" "$CURRENT")"
+          url="$(gh pr create --head "$branch" --title "chore(harness): $verb kit $CURRENT to $TARGET" --body "$body")"
+          gh pr merge "$url" --auto --squash
+          echo "Opened $url with auto-merge on." >> "$GITHUB_STEP_SUMMARY"
+      - name: One tracking issue on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          title="harness-update: kit maintenance failing"
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          export GH_TOKEN="${GH_TOKEN:-${{ github.token }}}"
+          n="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty' || true)"
+          if [ -n "$n" ]; then gh issue comment "$n" --body "Still failing: $url"; else gh issue create --title "$title" --body "FAIL: $url"; fi
