@@ -59,6 +59,18 @@ and appends the rest, each on its own line at column 1, to the update or rollbac
 PR for that version is already open without them, it edits that PR's body, so the guard re-runs. The line is the project's standing
 authorization: record the decision that grants it in the project, not in the kit.
 
+## Kit update PRs keep themselves current
+
+Under a strict required-checks rule a PR falls "behind" whenever its base branch moves, and GitHub's
+auto-merge then waits forever. `hands-keep` (K012) brings every open kit update PR of the App's that
+is behind up to date with GitHub's update-branch, through the App, so the project's checks run again
+and auto-merge goes on; no session updates such a PR by hand. `hands-update` turns `hands-keep` on and
+runs it once whenever it opens or finds a kit update PR; it then runs hourly and turns itself off
+once none is open. A PR open longer than `HANDS_KEEP_HOURS` (the control repository's Actions
+variable, default 72) is left to the stale-work check. Each update is a line in the hands log; a
+refused update fails the run, one problem under the alert standard. A conflicted or draft PR is never
+touched.
+
 ## GitHub-hosted minutes (O13)
 
 GitHub bills a private repository's hosted-runner jobs, each rounded up to a whole minute. Public
@@ -80,7 +92,8 @@ repositories and K repositories that pin the kit:
 |---|---|---|---|---|
 | `hands-settings` | control repo | daily drift check (which also ticks the alerts, posts the digest and alerts on any scheduled workflow here more than 36 h overdue); dispatch after a settings merge | 1, plus 2 when something drifts | ~30, plus ~3 per settings change |
 | `hands-update` | control repo | weekly; dispatch | 2 + K | ~4.3 × (2 + K) |
-| `hands-report` | control repo | called by the two above | (counted above) | 0 extra |
+| `hands-keep` | control repo | hourly, only while a kit update PR is open; dispatch | 1, plus 1 when it updates, fails or turns off | ~2-4 per kit update; at most ~75 for a PR left open 3 days |
+| `hands-report` | control repo | called by the three above | (counted above) | 0 extra |
 | `hands-alerts` | control repo | dispatch; hourly 08:00-22:00 Damascus only with `ALERTS_TICK=on` | 1 | ~1 per dispatch; ~450 with the tick on |
 | `hands-check` | control repo | each PR push there | 1 | ~1 per PR push |
 | `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 (a fork's PR always hosted) |

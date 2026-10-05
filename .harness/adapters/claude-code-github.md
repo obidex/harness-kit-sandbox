@@ -56,7 +56,8 @@
   workflow runs, and Actions may be barred from creating or approving PRs, so a maintenance PR that
   must run checks and auto-merge is opened by the owner's hands App (A14), whose tokens are minted
   per run and never expire. Auto-merge also needs the repository setting enabled and a required
-  check to wait for, both of which the settings file declares.
+  check to wait for, both of which the settings file declares. Under a strict check rule auto-merge
+  never updates a branch that fell behind; the App does that for kit update PRs (`hands-keep`, K012).
 - **A14 One App holds GitHub's hands.** The owner's single GitHub App is used only by reviewed
   workflows on the control repository's main branch (its key sits in an environment only `main`
   can use), never by an AI session. Each job mints a token for one repository and only the
