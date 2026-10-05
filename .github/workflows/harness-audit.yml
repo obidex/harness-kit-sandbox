@@ -21,15 +21,18 @@ concurrency:
 jobs:
   harness-audit:
     name: harness-audit
-    runs-on: ubuntu-latest
+    # a PR's own code runs here, so only a PR from this repository may reach the self-hosted runner;
+    # a fork's PR, or one whose fork was deleted (head.repo is null), runs on ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.RUNNER || 'ubuntu-latest') || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Relevant change?
         id: scope
         env:
@@ -44,7 +47,7 @@ jobs:
             echo "No kit, entry, agent or workflow file changed: nothing to audit." >> "$GITHUB_STEP_SUMMARY"
             echo "run=0" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: steps.scope.outputs.run == '1'
         with:
           node-version: 22
@@ -76,3 +79,13 @@ jobs:
           url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           n="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
           if [ -n "$n" ]; then gh issue comment "$n" --body "Still failing: $url"; else gh issue create --title "$title" --body "FAIL: $url"; fi
+      - name: Close that issue when a scheduled run passes again
+        if: success() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="harness-audit: scheduled audit failing"
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          n="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$n" ]; then gh issue close "$n" --reason completed --comment "Passing again: $url"; fi

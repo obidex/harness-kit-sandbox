@@ -1,0 +1,58 @@
+# Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# C15 no silent stall: once a day, lists open PRs (green-unmerged, red, conflicted, draft, waiting;
+# bot PRs too), inbox requests queued or working, and `card` or `risk:*` issues idle past their
+# thresholds (.harness/tools/stale.mjs) in ONE tracking issue "Stale work", updated in place and
+# closed when the list is empty. Alerts go through notify.mjs (O10, .harness/alerts.md): newly stale
+# items open the problem `stale:<repo>` in the project's topic (profile alerts.topic); an
+# empty list resolves it. Without the ALERTS_BOT_TOKEN / ALERTS_CHAT_ID secrets the problem is kept as
+# an issue for the next tick. Thresholds can be set with the Actions variables HARNESS_STALE_PR_DAYS,
+# _CONFLICT_DAYS, _INBOX_DAYS, _CARD_DAYS.
+# Safe on a self-hosted runner: it checks out only the default branch's .harness/tools, never PR code.
+# Cost (O13): one short job a day, about 30 GitHub-hosted minutes a month on a private repository
+# without a self-hosted RUNNER; none with one, or on a public repository.
+name: harness-stale
+
+on:
+  schedule:
+    - cron: '41 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-stale
+  cancel-in-progress: false
+
+jobs:
+  stale:
+    name: harness-stale
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      checks: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .harness/tools
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: List stale work in the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALERTS_STORE: github:${{ github.repository }}
+          ALERTS_BOT_TOKEN: ${{ secrets.ALERTS_BOT_TOKEN }}
+          ALERTS_CHAT_ID: ${{ secrets.ALERTS_CHAT_ID }}
+          ALERTS_TOPIC: ${{ vars.ALERTS_TOPIC }}
+          HARNESS_STALE_PR_DAYS: ${{ vars.HARNESS_STALE_PR_DAYS }}
+          HARNESS_STALE_CONFLICT_DAYS: ${{ vars.HARNESS_STALE_CONFLICT_DAYS }}
+          HARNESS_STALE_INBOX_DAYS: ${{ vars.HARNESS_STALE_INBOX_DAYS }}
+          HARNESS_STALE_CARD_DAYS: ${{ vars.HARNESS_STALE_CARD_DAYS }}
+        run: node .harness/tools/stale.mjs report --repo "$GITHUB_REPOSITORY"

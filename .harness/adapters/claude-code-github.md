@@ -63,7 +63,7 @@
   permissions it needs. Repository settings, rulesets with their required checks, auto-merge and
   labels are code: `.github/harness-settings.json`, checked on the PR, applied by a dispatch right
   after the merge and by a daily drift check, then read back (`hands.md`). Every write is logged
-  in the control repository; a failure alerts once by Telegram (O10).
+  in the control repository; a failure is one problem under the alert standard (O10, `alerts.md`).
 
 ## Records
 
