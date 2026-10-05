@@ -3,14 +3,21 @@
 //
 //   node .harness/tools/hands.mjs validate [root]           check root/.github/harness-settings.json (a PR check)
 //   node .harness/tools/hands.mjs discover                  the App's repositories and what each enrolled
+//   node .harness/tools/hands.mjs drift [--only owner/name] the enrolled repositories whose live settings differ
+//                                                           from their file (JSON on stdout); read-only
 //   node .harness/tools/hands.mjs plan  --repo owner/name   what applying the repo's settings file would change
-//   node .harness/tools/hands.mjs apply --repo owner/name   apply it; every write is printed as one line
+//   node .harness/tools/hands.mjs apply --repo owner/name   apply it; every write is printed as one line, then
+//                                                           the live settings are read back and must match
 //   node .harness/tools/hands.mjs export --repo owner/name  the live settings as a settings file (to enroll)
 //   node .harness/tools/hands.mjs control-check [root]      the control repository's workflows keep the App key on main
 //
 // Only the control repository's reviewed workflows on its main branch run discover, plan and apply,
 // with a token minted from the App for that job alone (GH_TOKEN). A project changes its settings by
 // a pull request to .github/harness-settings.json; once merged, the next run applies it.
+//
+// HANDS_PAUSED (the control repository's Actions variable) lists repositories, comma or space
+// separated, or `*`, whose settings are left alone: drift skips them and apply refuses them. It is the
+// emergency stop (README "Emergency"): pause, repair by hand, bring the file back into agreement, unpause.
 //
 // The file names what it manages. Repository keys are set as given; rulesets are matched by name and
 // replaced when they differ; labels are created or updated. Nothing unnamed is touched unless the
@@ -22,6 +29,9 @@ import { fileURLToPath } from 'node:url';
 import { validateSchema, parseYaml, triggers } from './lib.mjs';
 
 export const SETTINGS_PATH = '.github/harness-settings.json';
+/** True when HANDS_PAUSED names the repository or is `*`. */
+export const paused = (repo, list = process.env.HANDS_PAUSED || '') => list.split(/[\s,]+/).filter(Boolean).some((x) => x === '*' || x.toLowerCase() === repo.toLowerCase());
+
 const kitDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const schema = () => JSON.parse(readFileSync(join(kitDir, 'settings.schema.json'), 'utf8'));
 
@@ -148,6 +158,8 @@ export function controlProblems(files) {
 
 // --- GitHub ---------------------------------------------------------------------------------------
 export async function api(method, path, body) {
+  // the drift check holds a token that could write; the tool refuses to (K008)
+  if (process.env.HANDS_READ_ONLY && method !== 'GET') throw new Error(`refused ${method} ${path}: HANDS_READ_ONLY is set`);
   const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
     method,
     headers: {
@@ -188,10 +200,37 @@ async function fileOnDefault(repo, path) {
   return Buffer.from(r.data.content, 'base64').toString('utf8');
 }
 
+/** The writes a settings file needs against the live repository; refuses an invalid or unsafe file. */
+async function planRepo(repo, text) {
+  if (text === null) throw new Error(`${repo}: no ${SETTINGS_PATH} on its default branch`);
+  const desired = JSON.parse(text);
+  const errors = validateSchema(schema(), desired);
+  if (!errors.length) errors.push(...unsafe(desired));
+  if (errors.length) throw new Error(`${repo}: ${SETTINGS_PATH} is invalid: ${errors.join('; ')}`);
+  return plan(repo, desired, await liveState(repo));
+}
+
+/** The App's repositories that carry a settings file or a kit lock. */
+async function discover() {
+  const repos = [];
+  for (let page = 1; page < 50; page++) {
+    const r = await must('GET', `/installation/repositories?per_page=100&page=${page}`);
+    repos.push(...r.repositories);
+    if (r.repositories.length < 100) break;
+  }
+  const out = [];
+  for (const r of repos.filter((x) => !x.archived)) {
+    const [settings, kit] = await Promise.all([api('GET', `/repos/${r.full_name}/contents/${SETTINGS_PATH}`), api('GET', `/repos/${r.full_name}/contents/.harness/kit.lock.json`)]);
+    if (settings.status === 200 || kit.status === 200) out.push({ repo: r.full_name, settings: settings.status === 200, kit: kit.status === 200 });
+  }
+  return out;
+}
+
 // --- commands -------------------------------------------------------------------------------------
 const argv = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
 const summary = (line) => { if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`); };
+const note = (line) => { console.error(line); summary(`- ${line.replace(/^hands: /, '')}`); };
 
 async function main() {
   const [cmd] = argv;
@@ -216,18 +255,28 @@ async function main() {
     return;
   }
   if (cmd === 'discover') {
-    const repos = [];
-    for (let page = 1; page < 50; page++) {
-      const r = await must('GET', `/installation/repositories?per_page=100&page=${page}`);
-      repos.push(...r.repositories);
-      if (r.repositories.length < 100) break;
-    }
+    console.log(JSON.stringify(await discover()));
+    return;
+  }
+  if (cmd === 'drift') {
+    // read-only: one job checks every enrolled repository, so an unchanged one costs no job of its own
+    const only = opt('--only')?.toLowerCase();
     const out = [];
-    for (const r of repos.filter((x) => !x.archived)) {
-      const [settings, kit] = await Promise.all([api('GET', `/repos/${r.full_name}/contents/${SETTINGS_PATH}`), api('GET', `/repos/${r.full_name}/contents/.harness/kit.lock.json`)]);
-      if (settings.status === 200 || kit.status === 200) out.push({ repo: r.full_name, settings: settings.status === 200, kit: kit.status === 200 });
+    let failed = 0;
+    const enrolled = (await discover()).filter((x) => x.settings && (!only || x.repo.toLowerCase() === only));
+    // a dispatch for a repository that is not enrolled must not pass as "applied"
+    if (only && !enrolled.length) { note(`hands: FAIL ${opt('--only')}: not enrolled (no ${SETTINGS_PATH} on its default branch, or the App is not installed there)`); failed++; }
+    for (const r of enrolled) {
+      if (paused(r.repo)) { note(`hands: ${r.repo}: paused (HANDS_PAUSED); left alone`); continue; }
+      try {
+        const steps = await planRepo(r.repo, await fileOnDefault(r.repo, SETTINGS_PATH));
+        if (!steps.length) { note(`hands: ${r.repo}: matches its settings file`); continue; }
+        for (const st of steps) note(`hands: ${r.repo}: drift: ${st.what}`);
+        out.push(r.repo);
+      } catch (e) { failed++; note(`hands: ${r.repo}: FAIL ${e.message}`); }
     }
     console.log(JSON.stringify(out));
+    if (failed) process.exitCode = 1;
     return;
   }
   const repo = opt('--repo');
@@ -244,22 +293,26 @@ async function main() {
     return;
   }
   if (cmd === 'plan' || cmd === 'apply') {
+    if (cmd === 'apply' && paused(repo)) { console.log(`hands: ${repo}: paused (HANDS_PAUSED); nothing applied`); summary(`- ${repo}: paused`); return; }
     const text = opt('--file') ? readFileSync(opt('--file'), 'utf8') : await fileOnDefault(repo, SETTINGS_PATH);
     if (text === null) { console.log(`hands: ${repo}: not enrolled (no ${SETTINGS_PATH} on its default branch)`); return; }
-    const desired = JSON.parse(text);
-    const errors = validateSchema(schema(), desired);
-    if (!errors.length) errors.push(...unsafe(desired));
-    if (errors.length) throw new Error(`${repo}: ${SETTINGS_PATH} is invalid: ${errors.join('; ')}`);
-    const steps = plan(repo, desired, await liveState(repo));
+    const steps = await planRepo(repo, text);
     if (!steps.length) { console.log(`hands: ${repo}: matches its settings file`); summary(`- ${repo}: matches its settings file`); return; }
     for (const s of steps) {
       if (cmd === 'apply') await must(s.call.method, s.call.path, s.call.body);
       console.log(`hands: ${repo}: ${cmd === 'apply' ? 'applied' : 'would apply'} ${s.what}`);
       summary(`- ${repo}: ${cmd === 'apply' ? 'applied' : 'would apply'} ${s.what}`);
     }
+    if (cmd === 'apply') {
+      // read back: what GitHub now holds must match the file, or the run fails and alerts
+      const left = await planRepo(repo, text);
+      if (left.length) throw new Error(`${repo}: read back after apply still differs: ${left.map((x) => x.what).join('; ')}`);
+      console.log(`hands: ${repo}: read back, live settings match the file`);
+      summary(`- ${repo}: read back, live settings match the file`);
+    }
     return;
   }
-  throw new Error('usage: hands.mjs validate|discover|plan|apply|export  (see the header of this file)');
+  throw new Error('usage: hands.mjs validate|discover|drift|plan|apply|export  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

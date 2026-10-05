@@ -1,0 +1,40 @@
+# Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Inbox pickup (O14, K009): when an issue gets the `inbox` label (or is reopened), wake this
+# project's coordinator, but only if that issue is a queued request, so the AI runs only when there
+# is work, and a request already picked up or done never wakes it twice. The wake fires the
+# coordinator's routine (secrets INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN; .harness/inbox.md).
+# Cost (O13): one short job per labelled or reopened inbox issue, nothing otherwise.
+name: harness-inbox
+
+on:
+  issues:
+    types: [labeled, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-inbox-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  wake:
+    if: (github.event.action == 'labeled' && github.event.label.name == 'inbox') || (github.event.action == 'reopened' && contains(github.event.issue.labels.*.name, 'inbox'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .harness/tools
+          persist-credentials: false
+      - name: Wake the coordinator if this is a queued request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          INBOX_ROUTINE_URL: ${{ secrets.INBOX_ROUTINE_URL }}
+          INBOX_ROUTINE_TOKEN: ${{ secrets.INBOX_ROUTINE_TOKEN }}
+        run: node .harness/tools/inbox.mjs wake --repo "$GITHUB_REPOSITORY" --issue "$ISSUE"
