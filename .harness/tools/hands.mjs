@@ -10,6 +10,8 @@
 //                                                           the live settings are read back and must match
 //   node .harness/tools/hands.mjs export --repo owner/name  the live settings as a settings file (to enroll)
 //   node .harness/tools/hands.mjs control-check [root]      the control repository's workflows keep the App key on main
+//   node .harness/tools/hands.mjs keep [--only owner/name]  bring every open kit update PR that is behind its base up
+//                                                           to date (K012); JSON {watched, updated} on stdout
 //
 // Only the control repository's reviewed workflows on its main branch run discover, plan and apply,
 // with a token minted from the App for that job alone (GH_TOKEN). A project changes its settings by
@@ -157,6 +159,63 @@ export function controlProblems(files) {
   return problems;
 }
 
+// --- keeping kit update PRs current (K012) --------------------------------------------------------
+// Under a strict required-checks rule a PR goes "behind" when its base branch moves, and GitHub's
+// auto-merge then waits forever: it never updates the branch itself. keep does, through the App, so
+// the project's checks run again on the new head and auto-merge goes on.
+export const KIT_BRANCH = /^harness\/kit-\d+\.\d+\.\d+$/;
+/** Hours a kit update PR is kept current (HANDS_KEEP_HOURS, default 72); an older one is left to the stale-work check. */
+export function keepHours(env = process.env) {
+  const v = String(env.HANDS_KEEP_HOURS ?? '').trim();
+  if (!v) return 72;
+  if (!/^\d+(\.\d+)?$/.test(v)) throw new Error(`HANDS_KEEP_HOURS must be a number of hours, not "${v}"`);
+  return Number(v);
+}
+/**
+ * What keep does with one open PR. Left alone: 'not a kit update' (another branch, or from a fork),
+ * 'not the App's' (opened by someone else), 'old' (open longer than `hours`). Watched: 'update' (behind
+ * its base), 'wait' (GitHub has not worked out its state yet), 'conflicted', 'draft', 'current'.
+ */
+export function keepAction(pr, { now = Date.now(), hours = 72, bot } = {}) {
+  if (!KIT_BRANCH.test(pr.head?.ref || '') || !pr.head?.repo || pr.head.repo.full_name !== pr.base?.repo?.full_name) return 'not a kit update';
+  if (bot ? pr.user?.login !== bot : pr.user?.type !== 'Bot') return "not the App's";
+  if ((now - Date.parse(pr.created_at)) / 3600000 > hours) return 'old';
+  if (pr.draft) return 'draft';
+  const st = pr.mergeable_state;
+  if (st === 'behind') return 'update';
+  if (st === 'dirty') return 'conflicted';
+  if (st === undefined || st === null || st === 'unknown') return 'wait';
+  return 'current';
+}
+export const watched = (action) => !['not a kit update', "not the App's", 'old'].includes(action);
+
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+/** One repository: every open kit update PR of the App's, each behind one updated. */
+async function keepRepo(repo, opts, log) {
+  let seen = 0, updated = 0;
+  const open = [];
+  for (let page = 1; page < 20; page++) {
+    const l = await must('GET', `/repos/${repo}/pulls?state=open&per_page=100&page=${page}`);
+    open.push(...l);
+    if (l.length < 100) break;
+  }
+  for (const listed of open) {
+    if (!watched(keepAction({ ...listed, mergeable_state: 'unknown' }, opts))) continue;
+    // the list leaves out mergeable_state; GitHub works it out on the first read of the PR itself
+    let pr = await must('GET', `/repos/${repo}/pulls/${listed.number}`);
+    for (let i = 0; i < 4 && keepAction(pr, opts) === 'wait'; i++) { await sleep(opts.retryMs ?? 3000); pr = await must('GET', `/repos/${repo}/pulls/${listed.number}`); }
+    const action = keepAction(pr, opts);
+    if (!watched(action)) continue;
+    seen++;
+    if (action !== 'update') { log(`hands: ${repo}: #${pr.number} (${pr.head.ref}) is ${action === 'wait' ? 'still being checked by GitHub' : action}; nothing to do`); continue; }
+    const r = await api('PUT', `/repos/${repo}/pulls/${pr.number}/update-branch`, { expected_head_sha: pr.head.sha });
+    if (r.status !== 202) throw new Error(`${repo}: #${pr.number} is behind ${pr.base.ref}, but update-branch answered ${r.status}: ${JSON.stringify(r.data).slice(0, 200)}`);
+    updated++;
+    log(`hands: ${repo}: applied update-branch to #${pr.number} (${pr.head.ref}): it was behind ${pr.base.ref}; its checks run again and auto-merge goes on`);
+  }
+  return { seen, updated };
+}
+
 // --- GitHub ---------------------------------------------------------------------------------------
 export async function api(method, path, body) {
   // the drift check holds a token that could write; the tool refuses to (K008)
@@ -259,6 +318,24 @@ async function main() {
     console.log(JSON.stringify(await discover()));
     return;
   }
+  if (cmd === 'keep') {
+    // the App's own PRs only: SLUG is the App's slug from the token step
+    const opts = { hours: keepHours(), bot: process.env.SLUG ? `${process.env.SLUG}[bot]` : undefined, retryMs: Number(process.env.HANDS_KEEP_RETRY_MS || 3000) };
+    const only = opt('--only')?.toLowerCase();
+    // every enrolled repository and the control repository itself (hands-update moves its pin too)
+    const all = (await discover()).map((x) => x.repo);
+    const self = process.env.GITHUB_REPOSITORY;
+    if (self && !all.some((r) => r.toLowerCase() === self.toLowerCase())) all.push(self);
+    const repos = all.filter((r) => !only || r.toLowerCase() === only);
+    let total = 0, updated = 0, failed = 0;
+    for (const repo of repos) {
+      try { const r = await keepRepo(repo, opts, note); total += r.seen; updated += r.updated; } catch (e) { failed++; note(`hands: ${repo}: FAIL ${e.message}`); }
+    }
+    note(`hands: ${total} open kit update PR(s) watched, ${updated} brought up to date`);
+    console.log(JSON.stringify({ watched: total + failed, updated }));
+    if (failed) process.exitCode = 1;
+    return;
+  }
   if (cmd === 'drift') {
     // read-only: one job checks every enrolled repository, so an unchanged one costs no job of its own
     const only = opt('--only')?.toLowerCase();
@@ -313,7 +390,7 @@ async function main() {
     }
     return;
   }
-  throw new Error('usage: hands.mjs validate|discover|drift|plan|apply|export|control-check  (see the header of this file)');
+  throw new Error('usage: hands.mjs validate|discover|drift|keep|plan|apply|export|control-check  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
