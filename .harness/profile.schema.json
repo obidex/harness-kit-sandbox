@@ -139,7 +139,8 @@
       "additionalProperties": false,
       "properties": {
         "channel": { "enum": ["telegram", "github-issue", "none"] },
-        "secret_name": { "type": "string", "description": "The name of the secret holding the alert credential; never its value." }
+        "secret_name": { "type": "string", "description": "The name of the secret holding the alert credential; never its value." },
+        "topic": { "type": "string", "description": "This project's notify.mjs topic (e.g. website, erp) for alerts from kit-installed workflows; the Actions variable ALERTS_TOPIC overrides it." }
       }
     },
     "performance": {
@@ -169,6 +170,19 @@
           "local_rule": { "type": "string" },
           "why": { "type": "string" },
           "decision": { "type": "string", "description": "The project decision that records it." }
+        }
+      }
+    },
+    "kit_updates": {
+      "description": "Optional. How the hands App's kit update (and rollback) PRs are written for this project.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pr_body_lines": {
+          "description": "Standing authorization lines every kit update PR body carries, each on its own line at column 1, for a project whose CI requires a body line on PRs touching .github/** or .claude/** (e.g. \"Tier-3: authorized by card #12\"). Plain text only: no markdown, HTML, newlines or closing keywords (closes #1); hands-update drops any other line with a warning.",
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9.,:;#()/_'-][A-Za-z0-9 .,:;#()/_'-]*$" }
         }
       }
     }

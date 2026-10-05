@@ -1,7 +1,8 @@
 # Harness Kit · the hands App in operation
 
 > Lookup only, never loaded by default. How settings as code runs day to day (A14, K007, K008), the
-> emergency stop, and what each kit workflow costs in GitHub-hosted minutes (O13).
+> emergency stop, kit update PRs against a project's PR guards, and what each kit workflow costs in
+> GitHub-hosted minutes (O13).
 
 ## When settings are applied
 
@@ -45,21 +46,47 @@ a ruleset blocks every merge, including the fix).
 
 Never resume before step 3: the next run would restore the broken setting.
 
+## Kit update PRs and a project's own PR guards
+
+A project whose CI requires a body line on PRs that touch `.github/**` or `.claude/**` (for example
+`Tier-3: authorized by card #12`) would block every unattended kit update. It names the standing
+authorization lines in its profile, `kit_updates.pr_body_lines` (at most 10, each at most 200
+characters of letters, digits, space and `. , : ; # ( ) / _ ' -`, no leading space, no closing
+keyword such as `closes #1`). `hands-update` reads `.harness/profile.json` from the project's
+default branch before changing anything, with its own inline reader (so the lines work whatever kit
+version the control repository pins), drops any line that fails with a warning in the run summary,
+and appends the rest, each on its own line at column 1, to the update or rollback PR's body. If a
+PR for that version is already open without them, it edits that PR's body, so the guard re-runs. The line is the project's standing
+authorization: record the decision that grants it in the project, not in the kit.
+
 ## GitHub-hosted minutes (O13)
 
 GitHub bills a private repository's hosted-runner jobs, each rounded up to a whole minute. Public
-repositories and self-hosted runners are not metered. Estimates per month, with N enrolled settings
+repositories and self-hosted runners are not metered. Every kit workflow installed in a project
+(`harness-*`) runs on `${{ vars.RUNNER || 'ubuntu-latest' }}`, the convention projects already use
+for their own CI: with the project's Actions variable `RUNNER` set to a self-hosted runner's label,
+these jobs use **no** GitHub-hosted minutes; without it they run on `ubuntu-latest` and cost what
+the table says. Every such job stays safe on a self-hosted runner: the privileged ones check out
+only the default branch's `.harness/tools`, never PR code, with `persist-credentials: false`, and
+`harness-audit`, which runs a PR's own code, takes the self-hosted lane only for a PR from the same
+repository (a fork's PR, or one whose fork was deleted, runs on `ubuntu-latest`). On a public
+repository anyone can queue `harness-scrub` jobs on a self-hosted runner by posting comments, so a
+public project may prefer to leave `RUNNER` unset for it; hosted minutes are free there. The control
+repository's `hands-*` jobs stay on GitHub-hosted runners (the App key never moves to a general
+worker, K008). Estimates per month without a self-hosted `RUNNER`, with N enrolled settings
 repositories and K repositories that pin the kit:
 
 | Workflow | Where | Trigger | Jobs per run | Estimate |
 |---|---|---|---|---|
-| `hands-settings` | control repo | daily drift check; dispatch after a settings merge | 1, plus 2 when something drifts | ~30, plus ~3 per settings change |
+| `hands-settings` | control repo | daily drift check (which also ticks the alerts, posts the digest and alerts on any scheduled workflow here more than 36 h overdue); dispatch after a settings merge | 1, plus 2 when something drifts | ~30, plus ~3 per settings change |
 | `hands-update` | control repo | weekly; dispatch | 2 + K | ~4.3 × (2 + K) |
 | `hands-report` | control repo | called by the two above | (counted above) | 0 extra |
+| `hands-alerts` | control repo | dispatch; hourly 08:00-22:00 Damascus only with `ALERTS_TICK=on` | 1 | ~1 per dispatch; ~450 with the tick on |
 | `hands-check` | control repo | each PR push there | 1 | ~1 per PR push |
-| `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 |
-| `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request |
-| `harness-scrub` | each project | every issue, PR, comment and review posted or edited | 1 | ~1 per event: the largest cost on a busy private repo |
+| `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 (a fork's PR always hosted) |
+| `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request; 0 with a self-hosted `RUNNER` |
+| `harness-scrub` | each project | every issue, PR, comment and review posted or edited | 1 | ~1 per event: the largest cost on a busy private repo (~700+ events a month on one measured project); 0 with a self-hosted `RUNNER` |
+| `harness-stale` | each project | daily; dispatch | 1 | ~30 (one short job a day); 0 with a self-hosted `RUNNER` |
 
 Before 0.6.0, `hands-settings` ran hourly with one job per enrolled repository:
 24 × 30 × (2 + N) minutes, which is 2,880 with N = 2 and 4,320 with N = 4.

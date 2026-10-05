@@ -32,11 +32,13 @@ export function validateSchema(schema, value) {
     if (s.type && !typeOk(s.type, x)) return err(path, `expected ${s.type}`);
     if (typeof x === 'string') {
       if (s.minLength && x.length < s.minLength) err(path, 'too short');
+      if (s.maxLength !== undefined && x.length > s.maxLength) err(path, `longer than ${s.maxLength}`);
       if (s.pattern && !new RegExp(s.pattern).test(x)) err(path, `does not match ${s.pattern}`);
     }
     if (typeof x === 'number' && s.minimum !== undefined && x < s.minimum) err(path, `below ${s.minimum}`);
     if (Array.isArray(x)) {
       if (s.minItems && x.length < s.minItems) err(path, `fewer than ${s.minItems} items`);
+      if (s.maxItems !== undefined && x.length > s.maxItems) err(path, `more than ${s.maxItems} items`);
       if (s.uniqueItems && new Set(x.map((y) => JSON.stringify(y))).size !== x.length) err(path, 'items repeat');
       if (s.items) x.forEach((y, i) => v(s.items, y, `${path}[${i}]`));
     }
@@ -138,4 +140,15 @@ export async function gh(path) {
   } catch (e) {
     return { status: 0, data: String(e) };
   }
+}
+
+/** GitHub's parser is strict YAML and parseYaml is not: a plain value holding ": " makes the whole
+ *  workflow invalid (it never runs, so it cannot alert). One message per offending line. */
+export function plainValueProblems(text) {
+  const out = [];
+  for (const [n, line] of String(text).split('\n').entries()) {
+    const m = line.match(/^\s*(?:-\s+)?[\w.-]+:\s+([^|>'"\s].*)$/);
+    if (m && /:\s/.test(m[1].replace(/\s+#.*$/, ''))) out.push(`line ${n + 1}: a plain value contains ": " (quote it or use a block scalar)`);
+  }
+  return out;
 }

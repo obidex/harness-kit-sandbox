@@ -403,6 +403,15 @@ const checks = {
     return [PASS, `attribution blanked in settings; none in the last 200 commits; harness-scrub.yml installed; none left in ${bodies.length} PR, issue and comment bodies posted since it was`];
   },
 
+  O10() {
+    // one alert standard: every sender goes through notify.mjs, none calls the Telegram API itself (K010)
+    if (!tracked.includes('.harness/tools/notify.mjs')) return [FAIL, '.harness/tools/notify.mjs is missing'];
+    const direct = tracked.filter((f) => f !== '.harness/tools/notify.mjs' && /\.(ya?ml|sh|mjs|js|cjs|ts|py)$/.test(f) && !f.startsWith('node_modules/'))
+      .filter((f) => { try { return /api\.telegram\.org/.test(read(f)); } catch { return false; } });
+    // not FAIL: a project's existing sender moves to the standard by its own PR, not by the kit update
+    if (direct.length) return [UNKNOWN, short(`notify.mjs installed; sending to Telegram directly, not yet on the standard: ${direct.join(', ')}`, 400)];
+    return [PASS, 'notify.mjs installed; no file calls the Telegram API itself (judgment: each problem in the group has a RESOLVED or STILL OPEN reply)'];
+  },
   O13() {
     // a schedule more often than daily needs its minute estimate written next to it (O13)
     const crons = workflows.flatMap((w) => { const sc = w.wf?.on?.schedule; return (Array.isArray(sc) ? sc : []).map((c) => [w, String(c?.cron || '')]); });

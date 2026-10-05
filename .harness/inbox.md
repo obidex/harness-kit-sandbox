@@ -37,7 +37,10 @@ scope; citing a decision never expands it.
 
 ## Cost (O13)
 
-`harness-inbox` runs one job of a few seconds per labelled or reopened inbox issue: about one
-GitHub-hosted minute per request on a private repository, none on a public one or a self-hosted
-runner, and nothing when no request arrives. Each pickup is one routine run, which counts against
-the owner's Claude subscription usage like any session.
+`harness-inbox` runs one job of a few seconds per labelled or reopened inbox issue, on
+`${{ vars.RUNNER || 'ubuntu-latest' }}`: about one GitHub-hosted minute per request on a private
+repository without a self-hosted `RUNNER`; none with the Actions variable `RUNNER` set to a
+self-hosted runner's label, or on a public repository; nothing when no request arrives. A request
+left queued or working for a day is listed by the stale-work check (`harness-stale`, C15). Each
+pickup is one routine run, which counts against the owner's Claude subscription usage like any
+session.
