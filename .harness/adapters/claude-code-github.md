@@ -61,8 +61,9 @@
   workflows on the control repository's main branch (its key sits in an environment only `main`
   can use), never by an AI session. Each job mints a token for one repository and only the
   permissions it needs. Repository settings, rulesets with their required checks, auto-merge and
-  labels are code: `.github/harness-settings.json`, checked on the PR and applied after merge.
-  Every write is logged in the control repository; a failure alerts once by Telegram (O10).
+  labels are code: `.github/harness-settings.json`, checked on the PR, applied by a dispatch right
+  after the merge and by a daily drift check, then read back (`hands.md`). Every write is logged
+  in the control repository; a failure alerts once by Telegram (O10).
 
 ## Records
 

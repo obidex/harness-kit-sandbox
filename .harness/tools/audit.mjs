@@ -403,6 +403,27 @@ const checks = {
     return [PASS, `attribution blanked in settings; none in the last 200 commits; harness-scrub.yml installed; none left in ${bodies.length} PR, issue and comment bodies posted since it was`];
   },
 
+  O13() {
+    // a schedule more often than daily needs its minute estimate written next to it (O13)
+    const crons = workflows.flatMap((w) => { const sc = w.wf?.on?.schedule; return (Array.isArray(sc) ? sc : []).map((c) => [w, String(c?.cron || '')]); });
+    if (!crons.length) return [NA, 'no scheduled workflow'];
+    const often = crons.filter(([, c]) => { const f = c.trim().split(/\s+/); return f.length === 5 && (!/^\d+$/.test(f[0]) || !/^\d+$/.test(f[1])); });
+    const unexplained = often.filter(([w]) => !/O13|min(?:ute)?s?\s*(?:a|per)\s*month|minutes\/month/i.test(w.text)).map(([w, c]) => `${w.file} (${c})`);
+    return unexplained.length ? [FAIL, `runs more than daily with no minute estimate: ${unexplained.join(', ')}`] : [PASS, `${crons.length} schedule(s): ${often.length ? `${often.length} more than daily, each with its estimate` : 'none more than daily'} (judgment: the owner was told before each landed)`];
+  },
+  O14() {
+    const problems = [];
+    if (!tracked.includes('.github/workflows/harness-inbox.yml')) problems.push('harness-inbox.yml is not installed');
+    if (!tracked.includes('.harness/tools/inbox.mjs')) problems.push('.harness/tools/inbox.mjs is missing');
+    let label = false;
+    try { label = (JSON.parse(read('.github/harness-settings.json')).labels || []).some((l) => String(l.name).toLowerCase() === 'inbox'); } catch { /* no settings file */ }
+    if (problems.length) return [FAIL, problems.join('; ')];
+    // not FAIL: the kit update that brings the inbox must not turn the audit red before the
+    // project's own settings PR declares the label
+    if (!label) return [UNKNOWN, 'harness-inbox.yml and inbox.mjs installed; the settings file does not declare the inbox label yet'];
+    return [PASS, 'inbox label declared; harness-inbox.yml and inbox.mjs installed (judgment: requests carry a verified cover and end with evidence)'];
+  },
+
   // ---- capabilities
   DB01() {
     const dir = ['supabase/migrations', 'db/migrations', 'migrations', 'prisma/migrations'].find(has);
