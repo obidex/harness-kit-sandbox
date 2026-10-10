@@ -142,6 +142,19 @@ const shellFiles = tracked.filter((f) => /\.(sh|bash)$/.test(f) || f.startsWith(
 const testFiles = tracked.filter((f) => /(^|\/)(tests?|__tests__|e2e)\/|\.(test|spec)\.[cm]?[jt]sx?$/.test(f));
 const scheduled = workflows.filter((w) => w.on.includes('schedule'));
 const commitLog = (n) => git('log', `-${n}`, '--format=%H%x1f%an%x1f%s%x1f%b%x1e') || '';
+// --- the baseline: the project's accepted FAILs (whole rules) and known commit exceptions -------------
+// An entry with `commits` (each a SHA of 7+ characters) is a known exception, not an accepted rule: the
+// rule skips exactly those commits (history that is never rewritten) and still FAILs on any other.
+const basePath = opt('--baseline') ? resolve(opt('--baseline')) : join(root, '.harness/audit-baseline.json');
+let baseline = [];
+try { baseline = existsSync(basePath) ? JSON.parse(readFileSync(basePath, 'utf8')).results || [] : []; } catch (e) { if (flags.has('--strict')) throw e; }
+const knownCommits = (id) => baseline.filter((r) => r.id === id && Array.isArray(r.commits)).flatMap((r) => r.commits).filter((c) => /^[0-9a-f]{7,40}$/.test(c));
+/** The commits of a log, less the rule's known exceptions; `skipped` is how many were left out. */
+const exceptCommits = (id, log) => {
+  const known = knownCommits(id), all = log.split('\x1e').filter((c) => c.trim());
+  const kept = all.filter((c) => !known.some((k) => c.trim().startsWith(k)));
+  return { kept, skipped: all.length - kept.length, note: all.length - kept.length ? `; ${all.length - kept.length} known exception(s) in the baseline skipped` : '' };
+};
 
 const checks = {
   // ---- adapter: loading and settings
@@ -219,10 +232,11 @@ const checks = {
   A10() {
     const log = commitLog(200);
     if (!log) return [UNKNOWN, 'git history unreadable'];
-    const commits = log.split('\x1e').filter((c) => c.trim());
-    const bad = commits.filter((c) => /co-authored-by:[^\n]*(claude|anthropic)/i.test(c)).map((c) => c.trim().slice(0, 10));
-    return bad.length ? [FAIL, `${bad.length} of the last ${commits.length} commits carry a Claude Co-authored-by trailer: ${bad.slice(0, 5).join(', ')}`]
-      : [PASS, `none of the last ${commits.length} commits carry a Claude trailer`];
+    const { kept: commits, note } = exceptCommits('A10', log);
+    // a Claude co-author trailer, or a commit authored as Claude (a squash adds the trailer for it)
+    const bad = commits.filter((c) => /co-authored-by:[^\n]*(claude|anthropic)/i.test(c) || /^claude( code)?(\[bot\])?$/i.test(c.trim().split('\x1f')[1] || '')).map((c) => c.trim().slice(0, 10));
+    return bad.length ? [FAIL, `${bad.length} of the last ${commits.length} commits carry a Claude Co-authored-by trailer or Claude as author: ${bad.slice(0, 5).join(', ')}${note}`]
+      : [PASS, `none of the last ${commits.length} commits carry a Claude trailer or author${note}`];
   },
   A11() {
     const b = branchRules();
@@ -381,7 +395,8 @@ const checks = {
     const a = settings?.attribution;
     const off = a && a.commit === '' && a.pr === '';
     const log = commitLog(200);
-    const gen = log.split('\x1e').filter((c) => /generated with \[?claude|co-authored-by:[^\n]*claude/i.test(c)).length;
+    const { kept, note: known } = exceptCommits('O09', log);
+    const gen = kept.filter((c) => /generated with \[?claude|co-authored-by:[^\n]*claude/i.test(c)).length;
     const problems = [];
     if (!off) problems.push('.claude/settings.json does not blank attribution.commit and attribution.pr');
     if (gen) problems.push(`${gen} of the last 200 commits carry Claude attribution`);
@@ -400,7 +415,7 @@ const checks = {
     if (problems.length) return [FAIL, short(problems.join('; '), 400)];
     const allRead = [api.pulls, api.issues, api.comments].every((r) => r?.status === 200);
     if (!allRead) return [UNKNOWN, `settings, the last 200 commits and the scrubber hold; recent PR, issue and comment bodies not read (${noAccess([api.pulls, api.issues, api.comments].find((r) => r?.status !== 200))})`];
-    return [PASS, `attribution blanked in settings; none in the last 200 commits; harness-scrub.yml installed; none left in ${bodies.length} PR, issue and comment bodies posted since it was`];
+    return [PASS, `attribution blanked in settings; none in the last 200 commits${known}; harness-scrub.yml installed; none left in ${bodies.length} PR, issue and comment bodies posted since it was`];
   },
 
   O10() {
@@ -588,8 +603,8 @@ if (opt('--md')) writeFileSync(opt('--md'), md);
 if (!opt('--json') && !opt('--md')) console.log(md);
 console.log(`audit: ${meta.project} · ${Object.entries(meta.totals).map(([k, v]) => `${v} ${k}`).join(' · ')}`);
 if (flags.has('--strict')) {
-  const basePath = opt('--baseline') ? resolve(opt('--baseline')) : join(root, '.harness/audit-baseline.json');
-  const accepted = new Set(existsSync(basePath) ? JSON.parse(readFileSync(basePath, 'utf8')).results.filter((r) => r.result === FAIL).map((r) => r.id) : []);
+  // an entry with `commits` is a known exception the rule already skipped, never a whole accepted rule
+  const accepted = new Set(baseline.filter((r) => r.result === FAIL && !Array.isArray(r.commits)).map((r) => r.id));
   const fresh = results.filter((r) => r.result === FAIL && !accepted.has(r.id));
   if (fresh.length) {
     for (const r of fresh) console.log(`audit: FAIL ${r.id} ${r.title}: ${r.evidence}`);

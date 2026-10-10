@@ -1,8 +1,10 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
-# Inbox pickup (O14, K009): when an issue gets the `inbox` label (or is reopened), wake this
-# project's coordinator, but only if that issue is a queued request, so the AI runs only when there
-# is work, and a request already picked up or done never wakes it twice. The wake fires the
-# coordinator's routine (secrets INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN; .harness/inbox.md).
+# Inbox pickup (O14, K009, K018, K024): when an issue gets the `inbox` label (or is reopened), wake
+# this project's coordinator, but only if that issue is a queued request not yet woken, so the AI
+# runs only when there is work, and a request already picked up or done never wakes it twice. This
+# job posts the wake comment on the wake-channel pull request the coordinator subscribes to: a
+# session cannot, because a subscribed session never receives a comment its own account posted.
+# A project without a channel may fire a routine instead (INBOX_ROUTINE_URL, INBOX_ROUTINE_TOKEN).
 # Cost (O13): one short job per labelled or reopened inbox issue, nothing otherwise.
 name: harness-inbox
 
@@ -24,7 +26,8 @@ jobs:
     timeout-minutes: 3
     permissions:
       contents: read
-      issues: read
+      issues: write          # the "Woke" or "Not delivered" note on the request
+      pull-requests: write   # the wake comment on the channel pull request (K018, K024)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
