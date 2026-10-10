@@ -40,7 +40,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseInbox } from './inbox.mjs';
 import { parseYaml } from './lib.mjs';
-import { TOPICS, problem, resolveKey, store, telegram } from './notify.mjs';
+import { TOPICS, problem, resolveKey, store, telegram, localTime } from './notify.mjs';
 
 export const MARKER = '<!-- harness-stale -->';
 export const TITLE = 'Stale work';
@@ -267,6 +267,9 @@ const NAMES = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, 
 const BOUNDS = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
 const HOUR_MS = 3600e3;
 const RAN = ['schedule', 'workflow_dispatch'];
+const RUN_PAGE = 30;
+/** A run that counts for its schedule: finished, and not cancelled (a skipped job still ran its schedule). */
+export const ranToEnd = (r) => r.status === 'completed' && r.conclusion !== 'cancelled';
 
 /** A five-field cron (GitHub's, UTC) as sets of allowed values; throws on what it cannot read. */
 export function parseCron(expr) {
@@ -334,14 +337,26 @@ export async function schedules(repo, now = Date.now(), limit = overdueHours()) 
       crons = (parseYaml(Buffer.from(file.content || '', 'base64').toString('utf8'))?.on?.schedule || []).map((x) => x?.cron).filter(Boolean);
     } catch (e) { if (!/answered 404/.test(e.message)) throw e; }
     if (!crons.length) continue;
-    // a run by hand (the remedy for a missed one) counts as a run; a push or PR run does not
+    // a run by hand (the remedy for a missed one) counts as a run; a push or PR run does not. Only a run
+    // that finished counts: one cancelled, or stuck unfinished (queued, waiting), is not a run, so runs
+    // created and cancelled behind a stuck one never hide that the work stopped (0.14.1)
     const runs = [];
-    for (const ev of RAN) runs.push(...((await api('GET', `/repos/${repo}/actions/workflows/${w.id}/runs?event=${ev}&per_page=1`)).workflow_runs || []));
+    let unfinished = 0;
+    for (const ev of RAN) {
+      const page = (await api('GET', `/repos/${repo}/actions/workflows/${w.id}/runs?event=${ev}&per_page=${RUN_PAGE}`)).workflow_runs || [];
+      const real = page.filter(ranToEnd);
+      if (real.length) runs.push(real[0]);
+      else if (page.length >= RUN_PAGE) unfinished++;
+    }
     runs.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    // a full page of runs with none finished, and no other finished run: the last real one is older than the
+    // whole page and its age unknown. The page slides forward as new runs are cancelled, so it is missed now
+    const none = !runs.length && unfinished > 0;
     const last = runs[0]?.created_at || w.created_at;
     const file = w.path.split('/').pop();
+    const st = scheduleState({ crons, last, now, limit });
     out.push({ workflow: w.name || file, file, url: `${w.html_url ? w.html_url.replace(/\/blob\/.*$/, '') : `https://github.com/${repo}`}/actions/workflows/${file}`,
-      state: w.state, crons, lastRun: runs[0]?.created_at || null, ...scheduleState({ crons, last, now, limit }) });
+      state: w.state, crons, lastRun: runs[0]?.created_at || null, ...st, ...(none ? { overdue: true, noneFinished: RUN_PAGE } : {}) });
   }
   return out;
 }
@@ -349,7 +364,8 @@ export async function schedules(repo, now = Date.now(), limit = overdueHours()) 
 /** The problem text for one missed schedule (notify.mjs sends it as one line). */
 export function missedText(repo, s, limit = 36) {
   const why = s.state === 'disabled_inactivity' ? 'GitHub turned its schedule off for inactivity; turn it back on in Actions' : 'GitHub\'s scheduled runs are best-effort; run it by hand from Actions if it stays missing';
-  return `Scheduled run missed: ${s.workflow} in ${repo} was due ${s.due.slice(0, 16).replace('T', ' ')} UTC and is ${s.lateHours} h overdue (more than ${limit} h); last run ${s.lastRun ? s.lastRun.slice(0, 16).replace('T', ' ') + ' UTC' : 'never'}. ${why}.`;
+  if (s.noneFinished) return `Scheduled run missed: ${s.workflow} in ${repo}: none of its last ${s.noneFinished} runs finished (cancelled or stuck). ${why}.`;
+  return `Scheduled run missed: ${s.workflow} in ${repo} was due ${localTime(s.due)} and is ${s.lateHours} h overdue (more than ${limit} h); last run ${s.lastRun ? localTime(s.lastRun) : 'never'}. ${why}.`;
 }
 
 /** schedules, then a problem per overdue workflow and a resolve for each that ran again. */
@@ -363,7 +379,7 @@ export async function alertSchedules(repo, now = Date.now(), topic = topicOf()) 
     const key = `schedule:${repo}/${s.file}`;
     const r = s.overdue
       ? await problem(st, tg, { key, topic, title: `Scheduled run missed: ${s.workflow}`, text: missedText(repo, s, limit), link: s.url })
-      : await resolveKey(st, tg, { key, text: `${s.workflow} in ${repo} ran again (${s.lastRun ? s.lastRun.slice(0, 16).replace('T', ' ') + ' UTC' : 'its next run is not due yet'})` });
+      : await resolveKey(st, tg, { key, text: `${s.workflow} in ${repo} ran again (${s.lastRun ? localTime(s.lastRun) : 'its next run is not due yet'})` });
     done.push({ ...s, alert: r.status });
   }
   return done;

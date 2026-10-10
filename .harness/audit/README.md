@@ -20,6 +20,10 @@ with "judgment review" as evidence.
 - **Heuristics are findings, not verdicts.** A structural FAIL whose evidence shows a recorded,
   justified exception (a comment naming the rule, a profile `exceptions` entry) is settled in the
   judgment review as PASS with that citation, or as a conflict (below).
+- **The baseline.** `.harness/audit-baseline.json` (project-owned) lists accepted results, each with
+  `why`. An entry with `result: FAIL` accepts that rule's FAIL in `--strict`. An entry with `commits`
+  (SHAs, 7+ characters) is a known exception instead: A10 and O09 skip exactly those commits (history
+  is never rewritten) and still FAIL on any other, so the exception never hides a recurrence.
 
 ## 2. Judgment review (sampled, by a fresh-context reviewer)
 
@@ -31,8 +35,13 @@ structural JSON (`--json`), the profile, read access to the repository and its i
    merged PRs, every open PR older than 3 days, and the last 3 runs of each scheduled job. Name the
    sample in the report so a re-run can repeat it.
 2. **Cards end in a valid outcome or a durable handover (C03, C04, C16).** For each sampled card, read
-   its last thread or issue comment: it opens `DONE —`, `WAITING FOR YOU —` or `STOPPED —`, or, if
-   unfinished, a handover names branch, PR, done work and the exact next step. Count them.
+   its last thread or issue comment: it opens `DONE —`, `WAITING FOR YOU —`, `WAITING ON —` or
+   `STOPPED —`, or, if unfinished, a handover names branch, PR, done work and the exact next step.
+   A `WAITING FOR YOU` whose next action is not the owner's, a `WAITING ON` with no named wake, or
+   "nothing" as a status while a party has an action is FAIL. A turn that ended waiting on CI, a
+   review or another thread with no reminder or watcher set, a finding posted mid-turn that the
+   next turn did not answer, or a merge decided on another thread's message alone is FAIL (C25).
+   Count them.
 3. **Evidence is real (C07, C08).** For each sampled PR, follow its VERIFIED lines to the run they cite:
    it ran on the merged head and exercised the change. A claim with no run, or a run on another commit,
    is FAIL.

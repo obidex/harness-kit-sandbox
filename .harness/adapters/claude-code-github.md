@@ -25,13 +25,28 @@
   boundary). It records what projects keep there today: attribution turned off; deny `--admin`
   merges, force pushes, destructive git, `.env*` reads and edits to the settings file itself; a
   session never edits its own settings.
+- **A15 Settings load only in a one-repository session.** A cloud thread applies a repository's
+  `.claude/settings.json` (identity env, allow and deny rules, attribution) only while the session
+  has exactly one repository. Attaching a second one (`add_repo`) takes effect at the next resume,
+  and from then on the session runs without them: commits are authored as Claude and routine
+  pushes and edits reach the auto-mode classifier. So a project thread never attaches a second
+  repository: another repository's reads and writes go through the coordinator or the inbox (O14).
+  Identity comes from those settings, or in a project with several repositories from `git config`
+  in each clone before the first commit; a thread never re-authors a commit. Every project copies
+  the standing approvals from `standing-approvals.md` into its instructions. A refused routine
+  command is a settings fault: the coordinator fixes its cause (a fresh one-repository thread, or
+  an allow rule the owner adds), never an owner sentence per push.
 
 ## Working in a session
 
-- **A06 Wait on a watcher.** After a push, start a background watcher that polls CI and prints one
-  line (`PASSED`, `FAILED: <job>`, `STUCK`, `TIMEOUT`), then end the turn; the line wakes the
-  session. Never wait by sleeping in conversation. Backup: one check an hour, at most three per
-  task. A wait past the prompt-cache window (about an hour) leaves a C04 handover and ends.
+- **A06 Wait on a watcher or a reminder.** After a push, start a background watcher that polls CI
+  and prints one line (`PASSED`, `FAILED: <job>`, `STUCK`, `TIMEOUT`), then end the turn; the line
+  wakes the session. A PR activity subscription is not a wait: a green check or a comment that lands
+  mid-turn may never wake you. When no watcher covers the wait (a review, another thread, a run past
+  the watcher's timeout), set one `send_later` self-reminder to this session at the expected finish;
+  at most three per wait (C25), each recorded on the card (C22) and deleted at DONE (C23). Never wait
+  by sleeping in conversation. A wait past the prompt-cache window (about an hour) leaves a C04
+  handover and ends.
 - **A07 Context budget.** Compact before about 200k tokens. Noisy steps (install, build, lint,
   test) write to a log file and print only exit code and summary; read the log only on failure.
 - **A08 Push coherent changes.** Push once quick checks pass, not several unfinished pushes: each
@@ -42,7 +57,17 @@
   only tracked files: stage first.
 - **A10 Merging from a cloud session.** `gh pr merge` may be unavailable (GraphQL blocked). Merge
   with the GitHub tool as a plain squash over REST, passing your own commit title and body (a
-  default squash body adds a `Co-authored-by` trailer); never `--admin`.
+  default squash body adds a `Co-authored-by` trailer); never `--admin`. Bring a PR branch up to
+  date on the server (the GitHub tool's update-branch, or `gh pr update-branch`, with the expected
+  head SHA), never by pushing a local merge of main: that push carries other PRs' changes, agent
+  rule files among them, and without settings it reaches the classifier (A15).
+- **A16 Edit files with the file tools.** In a session without repository settings (A15), change
+  files with the session's file-edit and write tools, never with a shell script (`python3 -`,
+  `sed -i`, a heredoc into a file): shell edits of agent rule files go to the auto-mode classifier
+  and are refused unpredictably; file-tool edits inside the working directory have not been. Seen in a
+  several-repository project on 7-8 Oct 2026: nine refusals, every one a shell edit or a shell
+  command after one; eleven file-tool edits of rule files in one thread, none refused. A refused
+  shell edit is still reported (C14).
 
 ## GitHub enforcement
 
@@ -75,12 +100,14 @@
 | A03 | the project uses skills or subagents | Review subagents declare read-only tools and a model. | ERP .claude/agents · D282; WEB .claude/agents | script: agent files in review roles have `tools:` without write tools and a `model:`. |
 | A04 | always | Kit files are present as a pinned copy with a recorded version. | K001 | script: `harness.mjs status`: `.harness/VERSION` matches the lock and every managed file matches its hash. |
 | A05 | always | Settings are project-edited only; sessions cannot edit them. | K001; ERP settings · D289; WEB CLAUDE.md · W138 | script: settings deny edits to themselves and admin merges. judgment: settings changes came through owner or reviewed PR. |
-| A06 | a session waits on CI or another event | Waits use a watcher; no conversation polling; handovers for long waits. | ERP run-card §7, wait-for script · D258; WEB run-card §7 · W221 | script: a watcher script exists with a self-test. judgment: sampled threads ended turns on a watcher. |
+| A06 | a session waits on CI or another event | Waits end the turn on a watcher or one `send_later` self-reminder at the expected finish (at most three per wait); no conversation polling; handovers for long waits; reminders deleted at DONE. | ERP run-card §7, wait-for script · D258; WEB run-card §7 · W221; K020 | script: a watcher script exists with a self-test. judgment: sampled threads ended waiting turns on a watcher or a reminder, and no reminder outlived its card. |
 | A07 | long sessions or noisy commands | Sessions compact on time; noisy steps print summaries. | ERP CLAUDE.md, run-card §4 · D260; WEB run-card §4 | judgment: sampled transcripts show logged noisy steps. |
 | A08 | a PR is open | No burst of unfinished pushes cancelled CI repeatedly. | ERP run-card §1 · D266 | judgment: sample push timelines on recent PRs. |
 | A09 | shell scripts or commands are written | Scripts avoid the listed traps. | WEB run-card §10 · W097, W139; WEB AGENTS §8 · W230 | script: lint for `grep -c` in pipelines and `) && echo OK` patterns. |
-| A10 | a cloud session merges | Squash commits on the default branch carry no Claude trailer. | ERP · D290 | script: scan recent default-branch commits for `Co-authored-by` trailers naming Claude. |
+| A10 | a cloud session merges or updates a PR branch | Squash commits on the default branch carry no Claude trailer; PR branches are updated on the server, not by a pushed local merge. | ERP · D290; K021 | script: scan recent default-branch commits for `Co-authored-by` trailers naming Claude. judgment: sampled PRs show server-side branch updates. |
 | A11 | GitHub hosts the repo | The ruleset requires the aggregate check, PR only, squash only, no bypass. | ERP STRATEGIST §2 · D289; WEB AGENTS §6 · W100 | script: read rulesets via the API; UNKNOWN without admin read access. |
 | A12 | the profile lists tier-3 paths | The guard runs on every PR including body edits. | ERP tier3-guard job; WEB tier3-guard step | script: workflow has the guard and the `edited` trigger. |
 | A13 | an unattended PR must pass checks and merge | Maintenance PRs come from an App or owner-created token and their checks run. | K001 (H2); PLATFORM (GITHUB_TOKEN events do not trigger workflows) | script: the maintenance PR's author is the App or token identity and its check runs exist. |
 | A14 | the kit is installed | Settings live in `.github/harness-settings.json` and the live repository matches it; only the hands App's reviewed workflows write them. | K007 (owner 4A) | script: the settings file is valid and the live repository matches it. |
+| A15 | a cloud thread works in a project | Each thread runs with exactly one repository and its settings loaded (commits authored as the owner, no classifier refusal on routine work); a project with several repositories sets identity with `git config` per clone; every project's instructions carry the standing-approvals block of `standing-approvals.md`, at its current `kit text`; no commit is re-authored. | K021, K022 | script: commits on recent PR branches are authored as the owner. judgment: the project instructions' block matches the kit's, filled in; sampled refusals traced to a missing-settings session and fixed at the cause, never one owner sentence per push. |
+| A16 | a session without repository settings changes files | Files change through the file-edit and write tools; no shell-script edit of a rule file. | K023 | judgment: sampled refusals in sessions without settings name no file-tool edit; a refused shell edit was reported and not retried. |

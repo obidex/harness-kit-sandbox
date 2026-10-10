@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: "Cross-project requests (owner default O14): send one to the repository that does the work as an `inbox` issue with a stable ID, or, as that project's coordinator, pick up queued requests, verify the owner decision that covers each, do the work, and post the evidence on the issue. Use for /inbox, when a routine wakes you for an inbox request, and whenever work belongs to another project."
+description: "Cross-project requests (owner default O14): send one to the repository that does the work as an `inbox` issue with a stable ID, or, as that project's coordinator, pick up queued requests, verify the owner decision that covers each, do the work, and post the evidence on the issue. Use for /inbox, when an inbox wake (a comment on the inbox-wake pull request) or a routine wakes you, and whenever work belongs to another project."
 ---
 
 # Inbox
@@ -18,11 +18,27 @@ on that issue, and the sender reads the result there. Setup and cost: `.harness/
 3. Run `inbox.mjs send --repo <owner/name> --id <id> --title <t> --outcome <what done looks like>
    --source <link to where it was asked> --coordinator <that project's coordinator> --covered-by <cover>`.
    Sending again with the same ID files nothing and prints the existing issue.
+   `send` then starts the Actions job that wakes that project's coordinator on its wake channel and
+   waits for its answer; never post the wake comment yourself (K024). `NOT delivered` (exit 3) means
+   the request is filed but nobody was woken: it stays queued, a resend tries again (`--again` for
+   one already woken), and you record it for your next scheduled check. A 401 or 403 in a cloud
+   session: attach the repository with push access first. Never ask the owner to wake or relay (O15).
 4. Read the result on the issue. Do not do the work yourself in the other repository.
 
 ## Picking up requests (the receiving coordinator)
 
-When a routine wakes you, or at the start of a coordinator turn:
+**First step of every coordinator session:** subscribe to this repository's wake channel (the open
+`inbox-wake` pull request, or the repository's existing `wake-channel` one; `inbox.mjs channel --repo <this repo>` names it, `--open` opens it once).
+A comment on it is an inbox wake.
+
+When an inbox wake or a routine wakes you, or at the start of a coordinator turn:
+
+*If running `inbox.mjs` is refused* (a session may refuse code from a fresh clone), do each step
+with the GitHub tools instead, never asking the owner to allow it: `pending` is the open issues
+labelled `inbox` whose body has `- **State:** queued`; `state` is editing that line (for `done`,
+also the `- **Evidence:**` line, then closing the issue as completed) plus a comment `**working**`
+or `**done**: <evidence>`. The refusal is still a finding (C14): name the exact refused command
+in `Found:` (class: constraint, prevented by this fallback, kit 0.17.1).
 
 1. Run `inbox.mjs pending --repo <this repo>`. If it prints `[]`, stop: there is nothing to do and
    nothing to report.

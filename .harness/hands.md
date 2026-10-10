@@ -69,7 +69,16 @@ runs it once whenever it opens or finds a kit update PR; it then runs hourly and
 once none is open. A PR open longer than `HANDS_KEEP_HOURS` (the control repository's Actions
 variable, default 72) is left to the stale-work check. Each update is a line in the hands log; a
 refused update fails the run, one problem under the alert standard. A conflicted or draft PR is never
-touched.
+touched. The newest `hands-keep` run replaces an older one (`cancel-in-progress`), so a run stuck
+before it starts never holds the later ones back. When `hands-update` opens a kit PR it closes every
+other open kit PR of the App's in that repository as superseded, with a comment naming the new one,
+and deletes its branch: one kit PR is open per project. It does so, and then turns auto-merge on,
+whether it opened the PR now or found it open. A project whose settings file sets
+`allow_auto_merge` to `false` chose that its threads merge kit PRs on their gates (O11): the run
+passes and says so, and the stale-work check lists the PR if it waits (K023). A refusal in any
+other case (the setting absent or `true`) fails the run naming that setting. `stale.mjs schedules` counts only runs that
+finished and were not cancelled, so runs created and cancelled behind a stuck one still raise
+"Scheduled run missed".
 
 ## GitHub-hosted minutes (O13)
 
@@ -95,6 +104,7 @@ repositories and K repositories that pin the kit:
 | `hands-keep` | control repo | hourly, only while a kit update PR is open; dispatch | 1, plus 1 when it updates, fails or turns off | ~2-4 per kit update; at most ~75 for a PR left open 3 days |
 | `hands-report` | control repo | called by the three above | (counted above) | 0 extra |
 | `hands-alerts` | control repo | dispatch; hourly 08:00-22:00 Damascus only with `ALERTS_TICK=on` | 1 | ~1 per dispatch; ~450 with the tick on |
+| `hands-answer` | control repo | dispatch by the panel host, one per owner answer | 1 | ~1 per answer, plus the card's own scrub runs for the answer and wake comments |
 | `hands-check` | control repo | each PR push there | 1 | ~1 per PR push |
 | `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 (a fork's PR always hosted) |
 | `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request; 0 with a self-hosted `RUNNER` |
