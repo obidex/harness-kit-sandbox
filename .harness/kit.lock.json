@@ -1,10 +1,10 @@
 {
-  "version": "0.26.3",
-  "commit": "58a99d984dd703501d2773af687e45b28ddb7d7b",
+  "version": "0.26.4",
+  "commit": "f15d747d63df50eaf2a12c2560b6833ddf3586bf",
   "source": "https://github.com/obidex/harness-kit",
   "previous": {
-    "version": "0.11.0",
-    "commit": "39e59fde0021ee9dbfc07c5c194e99489db77573"
+    "version": "0.26.3",
+    "commit": "58a99d984dd703501d2773af687e45b28ddb7d7b"
   },
   "files": {
     ".claude/skills/correct/SKILL.md": "0f75f651c25a4a0a07bd54fa2aaa5c9f04288b0d74ea736ebbbfa0448e5875d7",
@@ -31,7 +31,7 @@
     ".harness/README.md": "8a09ff4a3811516299842eb9b571d17df3adc073ebd5583de6a2db5b68205cca",
     ".harness/settings.schema.json": "77e781867cffc44b97a5ec1a6f33820485e62e6476ab70b4b9d9936dd6569bef",
     ".harness/standing-approvals.md": "a639e474053beab45cbe5a6a6fedb3f2e23c46665ed5ceeaa4ed45ddda1fb045",
-    ".harness/tools/ask.mjs": "f321dd32c856cbf791f2a5bc83ced2573f25e7d9a613f9e3293f60b9f60b72ce",
+    ".harness/tools/ask.mjs": "75271ab603637ca685da512524ae89472b7324f82c4d1dac077072332d8c7f74",
     ".harness/tools/audit.mjs": "625c6972c46a0afa862b55170eda11d98b883cb365213562bb9bd1f73c53ae78",
     ".harness/tools/hands.mjs": "9f3d3cf859a47e43bedbaa925d01d9d5d43ceb741bab8e03a68faf9f0ee8d1da",
     ".harness/tools/harness.mjs": "b75b9f317be84dadd892eb14f988c5894a67e56593b932cc951690afdad8d324",
@@ -41,6 +41,6 @@
     ".harness/tools/panel.mjs": "b5af02a5a2698c356631da37618f42e5ef95528cc999d1630cfe8b1afc936fa8",
     ".harness/tools/scrub.mjs": "ef4d95140864053e886f47b8d688768e299a94391ce1f72dfc2f4fd5f053a7a4",
     ".harness/tools/stale.mjs": "320ca3f7d31fe33339f53f2433362d02b7030065bc2cb5898980ff821a2a8b29",
-    ".harness/VERSION": "0c5837fb59e93d275c2c439543cc54e7a4dd71a10bb6965718e6807d3f8256cc"
+    ".harness/VERSION": "826f965a3a4e4242df08f18895837c35c28bbf33bf7e8fa5d187781a764b1325"
   }
 }
