@@ -7,6 +7,9 @@
 //                                   put the question on the card (an issue or a pull request) as one
 //                                   marked comment and label the card `needs-owner`; the panel host
 //                                   shows it in "Needs you" with one button per option
+//   node .harness/tools/ask.mjs withdraw --repo owner/name --issue <n> --id <id>
+//                                   take a question back (it no longer applies): a marked comment on
+//                                   the card; the panel stops showing it and a late press writes nothing
 //   node .harness/tools/ask.mjs open --owner <account>
 //                                   the panel host: every open question on a labelled card (JSON)
 //   node .harness/tools/ask.mjs answer --repo owner/name --issue <n> --id <id> --option <0-3>
@@ -31,7 +34,7 @@ import { fileURLToPath } from 'node:url';
 import { findChannel } from './inbox.mjs';
 
 export const LABEL = 'needs-owner';
-export const ASK = 'panel-ask', ANSWER = 'panel-answer';
+export const ASK = 'panel-ask', ANSWER = 'panel-answer', WITHDRAW = 'panel-withdraw';
 const TRUSTED = ['OWNER', 'MEMBER', 'COLLABORATOR'];       // who may ask: never a stranger on a public card
 const one = (s) => String(s ?? '').replace(/\s*\n\s*/g, ' ').trim();
 const shown = (s) => String(s).replace(/</g, '&lt;');                // visible text never opens an HTML comment
@@ -58,22 +61,27 @@ export const askBody = (q) => [mark(ASK, q), `**Question for the owner** (contro
   ...q.options.map((o, n) => `- **${letter(n)}.** ${shown(o)}${n === q.recommended ? ' (recommended)' : ''}`), '',
   'The owner answers with a button in the control panel; the answer is posted here by the hands App.'].join('\n');
 
+export const withdrawBody = (q) => [mark(WITHDRAW, { id: q.id }),
+  `**Question withdrawn:** "${shown(q.question)}" no longer applies; a later press in the control panel writes nothing.`].join('\n');
+
 export const answerBody = (q, a) => [mark(ANSWER, { id: q.id, option: a.option, by: a.by, at: a.at }),
   `**The owner's answer** to "${shown(q.question)}": **${letter(a.option)}.** ${shown(q.options[a.option])}`, '',
   `Pressed in the control panel by ${a.by.replace(':', ' account ')} at ${a.at.slice(0, 16).replace('T', ' ')} UTC. It answers this question only.`].join('\n');
 
-/** The questions and answers among a card's comments: a question only from the card's own people,
- *  an answer only from the hands App (`app`, its login; none given: no answer counts); the first of
- *  each id counts. */
+/** The questions and answers among a card's comments: a question (and its withdrawal) only from the
+ *  card's own people, an answer only from the hands App (`app`, its login; none given: no answer
+ *  counts); the first of each id counts. */
 export function parse(comments, app = null) {
-  const asks = {}, answers = {};
+  const asks = {}, answers = {}, withdrawn = {};
   for (const c of comments) {
     const q = TRUSTED.includes(c.author_association) && read(ASK, c.body);
     if (q && !asks[q.id]) { try { asks[q.id] = { ...question(q), url: c.html_url }; } catch { /* malformed: never shown */ } }
+    const w = TRUSTED.includes(c.author_association) && read(WITHDRAW, c.body);
+    if (w && typeof w.id === 'string') withdrawn[w.id] = true;
     const a = app && c.user?.type === 'Bot' && c.user?.login === app && read(ANSWER, c.body);
     if (a && typeof a.id === 'string' && !answers[a.id] && Number.isInteger(a.option)) answers[a.id] = { option: a.option, by: String(a.by || ''), at: String(a.at || ''), author: c.user.login, url: c.html_url };
   }
-  return { asks, answers };
+  return { asks, answers, withdrawn };
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
@@ -105,14 +113,25 @@ export async function ask(call, { repo, issue, app = null, ...q }) {
   return { status: seen ? 'already asked' : 'asked', url: seen?.url };
 }
 
+/** Take a question back. The same id twice is never a second comment; a card with nothing left to
+ *  answer loses its label. */
+export async function withdraw(call, { repo, issue, id }) {
+  const { asks, withdrawn } = parse(await comments(call, repo, issue));
+  const q = asks[id];
+  if (!q) throw new Error(`no question "${id}" on ${repo}#${issue}`);
+  if (!withdrawn[id]) await call('POST', `/repos/${repo}/issues/${issue}/comments`, { body: withdrawBody(q) });
+  await settle(call, { repo, issue, app: String(process.env.ASK_APP_LOGIN || '').trim() || null });
+  return { status: withdrawn[id] ? 'already withdrawn' : 'withdrawn' };
+}
+
 /** Every question on an open labelled card of the owner's repositories, with its answer if any. */
 export async function open(call, { owner, app, max = 100 }) {
   const found = await call('GET', `/search/issues?q=${encodeURIComponent(`user:${owner} label:${LABEL} is:open`)}&per_page=${max}`);
   const out = [];
   for (const i of found.items || []) {
     const repo = i.repository_url.split('/repos/')[1];
-    const { asks, answers } = parse(await comments(call, repo, i.number), app);
-    for (const q of Object.values(asks)) out.push({ repo, issue: i.number, card: i.html_url, pr: Boolean(i.pull_request), ...q, answer: answers[q.id] || null });
+    const { asks, answers, withdrawn } = parse(await comments(call, repo, i.number), app);
+    for (const q of Object.values(asks)) if (!withdrawn[q.id]) out.push({ repo, issue: i.number, card: i.html_url, pr: Boolean(i.pull_request), ...q, answer: answers[q.id] || null });
   }
   return out;
 }
@@ -122,9 +141,10 @@ export async function answer(call, { repo, issue, id, option, by, at, app }) {
   if (!/^[a-z]+:\d{1,20}$/.test(String(by))) throw new Error('--by must be <channel>:<account id>');
   if (Number.isNaN(Date.parse(at))) throw new Error('--at must be a time');
   const card = await call('GET', `/repos/${repo}/issues/${issue}`);
-  const { asks, answers } = parse(await comments(call, repo, issue), app);
+  const { asks, answers, withdrawn } = parse(await comments(call, repo, issue), app);
   const q = asks[id];
   if (!q) throw new Error(`no question "${id}" on ${repo}#${issue}`);
+  if (withdrawn[id]) return { status: 'withdrawn' };
   const n = Number(option);
   if (!Number.isInteger(n) || n < 0 || n >= q.options.length) throw new Error(`option ${option} is not one of ${q.options.length}`);
   if (answers[id]) return { status: 'already answered', option: answers[id].option };
@@ -141,10 +161,10 @@ export async function answer(call, { repo, issue, id, option, by, at, app }) {
 export const dispatch = (call, hands, a) => call('POST', `/repos/${hands}/actions/workflows/hands-answer.yml/dispatches`,
   { ref: 'main', inputs: { repo: a.repo, issue: String(a.issue), id: a.id, option: String(a.option), by: a.by, at: a.at } });
 
-/** The host: take the label off a card whose every question is answered. */
+/** The host: take the label off a card whose every question is answered or withdrawn. */
 export async function settle(call, { repo, issue, app }) {
-  const { asks, answers } = parse(await comments(call, repo, issue), app);
-  if (Object.keys(asks).some((id) => !answers[id])) return false;
+  const { asks, answers, withdrawn } = parse(await comments(call, repo, issue), app);
+  if (Object.keys(asks).some((id) => !answers[id] && !withdrawn[id])) return false;
   await call('DELETE', `/repos/${repo}/issues/${issue}/labels/${LABEL}`).catch((e) => { if (!/ 404:/.test(e.message)) throw e; });
   return true;
 }
@@ -156,8 +176,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const all = (k) => rest.flatMap((v, i) => (rest[i - 1] === `--${k}` ? [v] : []));
   try {
     if (cmd === 'ask') console.log(JSON.stringify(await ask(api, { repo: arg('repo'), issue: arg('issue'), id: arg('id'), question: arg('question'), options: all('option'), recommended: arg('recommended') ?? 0 })));
+    else if (cmd === 'withdraw') console.log(JSON.stringify(await withdraw(api, { repo: arg('repo'), issue: arg('issue'), id: arg('id') })));
     else if (cmd === 'open') console.log(JSON.stringify(await open(api, { owner: arg('owner'), app: appLogin() })));
     else if (cmd === 'answer') console.log(JSON.stringify(await answer(api, { repo: arg('repo'), issue: arg('issue'), id: arg('id'), option: arg('option'), by: arg('by'), at: arg('at'), app: appLogin() })));
-    else { console.error('usage: ask.mjs ask|open|answer (see the header)'); process.exit(2); }
+    else { console.error('usage: ask.mjs ask|withdraw|open|answer (see the header)'); process.exit(2); }
   } catch (e) { console.error(`ask: ${e.message}`); process.exit(1); }
 }
