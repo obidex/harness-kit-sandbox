@@ -18,6 +18,7 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Alerts: the one Telegram group, its rules, each sender's wiring, cost (O10) | `alerts.md`, `tools/notify.mjs` | Lookup |
 | Control panel: the channel-free core, its buttons, /status, decisions, the log; adapters: file, Telegram (K025) | `tools/panel.mjs` | Run, never loaded |
 | Questions for the owner on a card, answered with a panel button and written back by the hands App (K026) | `tools/ask.mjs`, `templates/hands/hands-answer.yml` | Run, never loaded |
+| Explain this failure: a panel press posted for the coordinator by the hands App, answered by a Claude session (K027, K028) | `tools/explain.mjs`, `templates/hands/hands-explain.yml` | Run, never loaded |
 | Stale work (C15): one daily tracking issue "Stale work"; missed scheduled runs (36 h overdue); alerts through `notify.mjs` | `tools/stale.mjs`, `templates/workflows/harness-stale.yml` | Run, never loaded |
 | Audit: structural script and judgment review | `tools/audit.mjs`, `audit/README.md` | Run, never loaded |
 | Installer and updater | `tools/harness.mjs`, workflows from `templates/workflows/` (each on the project's `RUNNER` lane, `hands.md`) | Run, never loaded |
