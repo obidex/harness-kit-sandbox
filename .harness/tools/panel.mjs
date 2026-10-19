@@ -25,13 +25,21 @@
 // - Button ids are `<op>:<view>` (at most 64 bytes, Telegram's limit): a press can only name a view and
 //   one of the ops below. It never carries a command.
 //     i details · a acknowledge · m mute 24 h · p pause the job · u resume it · r retry it · d<n> option n
+//     e explain (asks Claude why it failed; at most EXPLAIN_PER_DAY presses in 24 h, counted from the log)
 // - Only the owner's account bound on that channel counts (one per channel: a Telegram account is not
 //   a Discord one), and only in a private chat or a chat in `chats`; anything else is refused and
 //   logged. An owner bound before 0.26.0 (one for every channel) is kept for the first channel he uses.
 // - A decision's answer goes to the host's `onAnswer({ id, project, issue, option, by, at, channel })`
 //   (the kit's ask.mjs writes it on the card it was asked on); one it refuses is not kept.
-// - Pause, resume and retry exist only for an alert the action list names ({ id, alerts: [key or
-//   "prefix*"], job, retry }); the host's `run({ op, action, problem })` does them.
+// - Pause, resume and retry exist only for an alert the action list names with a job ({ id, alerts:
+//   [key or "prefix*"], job, retry }); the host's `run({ op, action, problem })` does them. An entry
+//   without `job` offers only Explain.
+// - Explain exists only for an alert whose action says `explain: true` and whose problem carries an
+//   https link: the host's `run({ op: 'explain', action, problem: { key, topic, title, link } })` sends
+//   the request on (the panel itself never calls an AI), and the host later gives the answer to
+//   `explained(key, text)`, which shows it under the problem. The core counts presses that reached the
+//   host in the last 24 h (counted before the call, so a failing host counts too) and refuses the
+//   press past EXPLAIN_PER_DAY, so a stuck button cannot spend.
 
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -40,9 +48,10 @@ import { fileURLToPath } from 'node:url';
 import { telegram } from './notify.mjs';
 
 export const MUTE_HOURS = 24;
+export const EXPLAIN_PER_DAY = 3;
 const HOUR = 3600e3;
 export const TOPIC_NAMES = { kit: 'Kit & Hands', erp: 'ERP', website: 'Website', ops: 'Laptop & VPS', needs: 'Needs you' };
-const LABEL = { i: 'Details', a: 'Acknowledge', m: 'Mute 24h', p: 'Pause automation', u: 'Resume', r: 'Retry' };
+const LABEL = { i: 'Details', a: 'Acknowledge', m: 'Mute 24h', p: 'Pause automation', u: 'Resume', r: 'Retry', e: 'Explain (Claude)' };
 const one = (s) => String(s ?? '').replace(/\s*\n\s*/g, ' ').trim();
 
 // --- the core -------------------------------------------------------------------------------------
@@ -68,10 +77,13 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
     return view(`d:${d.id}`, `DECISION · ${TOPIC_NAMES[d.project] || d.project}\n${d.question}\n${lines.join('\n')}`,
       d.options.map((_, n) => [`d${n}`, String.fromCharCode(65 + n)]), null, 'needs');
   };
+  const canExplain = (p, a) => !!a?.explain && /^https:\/\/\S+$/.test(String(p.link || ''));
+  // counted from the line written BEFORE the host is called, so a host that fails (or a crash after the call) still counts
+  const explainsToday = () => core.log().filter((l) => l.what === 'explain' && l.result === 'sent' && Date.parse(l.at) > now() - 24 * HOUR).length;
   const actionFor = (key) => actions.find((a) => (a.alerts || []).some((p) => (p.endsWith('*') ? key.startsWith(p.slice(0, -1)) : key === p)));
   const problemButtons = (p) => {
     const a = actionFor(p.key);
-    return [['i'], ['a'], ['m'], ...(a ? [p.paused ? ['u'] : ['p']] : []), ...(a?.retry ? [['r']] : [])];
+    return [['i'], ['a'], ['m'], ...(a?.job ? [p.paused ? ['u'] : ['p']] : []), ...(a?.job && a.retry ? [['r']] : []), ...(canExplain(p, a) ? [['e']] : [])];
   };
   const codePath = join(dir, 'bind-code');
   const pendingCode = () => {
@@ -114,6 +126,14 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       const v = decisionView(st.decisions[id]);
       st.decisions[id].view = v.id;
       save(); log({ who: 'sender', what: 'ask', target: id });
+      return v;
+    },
+    /** The answer to an Explain press, shown under the problem (the host's relay of Claude's reply). */
+    explained(key, text) {
+      const p = st.problems[key];
+      if (!p || !String(text ?? '').trim()) return null;
+      const v = view(`x:${key}`, `EXPLAINED · ${p.title}\n${String(text).trim().slice(0, 1500)}`, [], p.view, p.topic);
+      save(); log({ who: 'host', what: 'explained', target: key });
       return v;
     },
     /** Muted problems whose 24 h ended are shown again. */
@@ -175,7 +195,7 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
         }
         return refuse('unknown command');
       }
-      const m = /^(i|a|m|p|u|r|d[0-3]):(v\d+)$/.exec(String(ev.button || ''));
+      const m = /^(i|a|m|p|u|r|e|d[0-3]):(v\d+)$/.exec(String(ev.button || ''));
       const about = m && st.views[m[2]]?.about;
       if (!about) return refuse('unknown button');
       const [op, vid] = [m[1], m[2]];
@@ -206,7 +226,17 @@ export function openCore({ dir, actions = [], chats = [], now = () => Date.now()
       if (op === 'a') { p.state = 'acknowledged'; save(); log({ who, channel, what: 'acknowledge', target: p.key, result: await tell({ what: 'acknowledge', key: p.key, ack: true, mutedUntil: null }) }); return reply('Acknowledged: no escalation, no reminder; still in /status.'); }
       if (op === 'm') { p.state = 'muted'; p.mutedUntil = now() + MUTE_HOURS * HOUR; save(); log({ who, channel, what: 'mute', target: p.key, result: await tell({ what: 'mute', key: p.key, ack: false, mutedUntil: p.mutedUntil }) }); return reply(`Muted for ${MUTE_HOURS} h.`); }
       const action = actionFor(p.key);
-      if (!action || (op === 'r' && !action.retry)) return refuse('no such action for this alert');
+      if (op === 'e') {
+        if (!canExplain(p, action)) return refuse('no such action for this alert');
+        const used = explainsToday();
+        if (used >= EXPLAIN_PER_DAY) { log({ who, channel, what: 'explain', target: p.key, result: `refused: ${EXPLAIN_PER_DAY} in 24 h already` }); save(); return reply(`Not sent: ${EXPLAIN_PER_DAY} explanations in the last 24 h already.`); }
+        log({ who, channel, what: 'explain', target: p.key, action: action.id, result: 'sent' });
+        let res;
+        try { res = await run({ op: 'explain', action, problem: { key: p.key, topic: p.topic, title: p.title, link: p.link } }); } catch (e) { res = { ok: false, text: e.message }; }
+        log({ who, channel, what: 'explain-result', target: p.key, action: action.id, result: res.ok ? 'ok' : `failed: ${one(res.text)}` }); save();
+        return reply(res.ok ? `Asked Claude to explain (${used + 1} of ${EXPLAIN_PER_DAY} in 24 h). The answer comes here.` : `Explain failed${res.text ? ` · ${one(res.text)}` : ''}`);
+      }
+      if (!action?.job || (op === 'r' && !action.retry)) return refuse('no such action for this alert');   // an explain-only entry names no job
       const what = { p: 'pause', u: 'resume', r: 'retry' }[op];
       let res;
       try { res = await run({ op: what, action, problem: { key: p.key, topic: p.topic } }); } catch (e) { res = { ok: false, text: e.message }; }

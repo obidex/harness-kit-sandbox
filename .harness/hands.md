@@ -105,6 +105,7 @@ repositories and K repositories that pin the kit:
 | `hands-report` | control repo | called by the three above | (counted above) | 0 extra |
 | `hands-alerts` | control repo | dispatch; hourly 08:00-22:00 Damascus only with `ALERTS_TICK=on` | 1 | ~1 per dispatch; ~450 with the tick on |
 | `hands-answer` | control repo | dispatch by the panel host, one per owner answer | 1 | ~1 per answer, plus the card's own scrub runs for the answer and wake comments |
+| `hands-explain` | control repo | dispatch by the panel host, one per Explain press; at most 3 requests a day per wake channel | 1 | ~1 per press, at most ~90 |
 | `hands-check` | control repo | each PR push there | 1 | ~1 per PR push |
 | `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 (a fork's PR always hosted) |
 | `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request; 0 with a self-hosted `RUNNER` |
