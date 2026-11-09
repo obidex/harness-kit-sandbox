@@ -1,10 +1,10 @@
 {
-  "version": "0.36.1",
-  "commit": "e989cdb18a8e03338bb3ba3c0341117a5c4e1822",
+  "version": "0.37.0",
+  "commit": "5b34cb4a80f6c10b61ceb3ddde65beb6274f29ae",
   "source": "https://github.com/obidex/harness-kit",
   "previous": {
-    "version": "0.28.1",
-    "commit": "c9713c44bf31577d0c0fdc82fd842a60b352a958"
+    "version": "0.36.1",
+    "commit": "e989cdb18a8e03338bb3ba3c0341117a5c4e1822"
   },
   "files": {
     ".claude/skills/correct/SKILL.md": "0f75f651c25a4a0a07bd54fa2aaa5c9f04288b0d74ea736ebbbfa0448e5875d7",
@@ -19,10 +19,10 @@
     ".harness/alerts.md": "32b9528293398466ac1fa50821f0db0bb7cc61938b8d71c71ae441f23ddd6068",
     ".harness/audit/README.md": "8e8ba12c28573ef092d96815f0202a00d0af7a9f409496e9fb9f4cede30bddf1",
     ".harness/capabilities.md": "6cfb3d8cac641ca980fc8176c4522bcf53ecd058a32c577d912f64109719392a",
-    ".harness/catalogue/core.md": "245d5ad6f0884b6eefbf3b69a907bc91500c4d3626090dbe2c8d696eb0d8be53",
+    ".harness/catalogue/core.md": "1bfe99ced84c20452916add27e695cd42ff16533af246cffe79f4769f9a8d382",
     ".harness/catalogue/owner-defaults.md": "5c11d55a33ac009858e395a8a72431bcd596a02ff3c6eb5b09e278fe3fb40993",
     ".harness/catalogue/README.md": "11e09015fe7cfa7685f2c39639235a84523367b89ecbec70d1a34547fd5d80dc",
-    ".harness/core.md": "5cbfde8632b7052c612dcee647c8b332ac830ea0c64e1f3f8bd30832aaef96f4",
+    ".harness/core.md": "4b0aced3bb71c2574d93c6a15ee93bec36c7949977d1b7fbd5880eda6ca4df95",
     ".harness/hands.md": "9f7ed9a15107cb81c9a83c36fbe24b09d2eaa3c17b9a0d328e9b2c275ed1ed14",
     ".harness/inbox.md": "53bba5f75c8d3bb87af8aa89663aa577078747a36db68b4a695df5aa0e8c4a79",
     ".harness/metrics.md": "fada810a735b48b4305a98a291d585685a820a975f56079bb5f9e4ca77b5c5c9",
@@ -50,7 +50,7 @@
     ".harness/tools/scrub.mjs": "9c4e09f32b658ada4b13ca9d2081bce0feef485370a1d0f1ab04dfbefb727d34",
     ".harness/tools/stale.mjs": "d7f9a4dee92ff03aea61b6729012009756505a0139653fe6dc5642d76f7b2144",
     ".harness/tools/wake.mjs": "343adfba738927119110123cd41d194d04d64f02ace8e91877c1f229824fc3df",
-    ".harness/VERSION": "16f2b1521da9840aad778f79bd687bbe0e273d7d7ae6d848809086f59c3ddebd",
+    ".harness/VERSION": "f1a49cdeb0cce1d8c2d7cde8b8ae660a88ddd2fe44f9e8c2aac95b5d4dad6105",
     ".harness/wake.md": "e57e4d837951a468ce42bba6dc6f72f7d09b2d2452ce1c6dcd4d123cd144101f"
   }
 }
