@@ -1,8 +1,82 @@
 # Harness Kit · alerts
 
-> Lookup only, never loaded by default. The owner's one notification standard (O10, K010): the group,
+> Lookup only, never loaded by default. The owner's one notification standard (O10, K010, K037): the kinds, the group,
 > the rules, how each kind of sender uses it, who runs the clock, setup and cost. The tool is
 > `tools/notify.mjs`; every rule below is enforced there and tested in the kit (`tools/test-notify.mjs`).
+
+## Kinds: what a sender reports (K037)
+
+Senders name a **kind**, never a channel, so the channel can change without touching them. The owner's
+group gets only the first four; everything technical goes to the Ops board. `problem` (below) is the
+older form, kept until every sender has moved to a kind.
+
+| Kind | Command | Where | What the owner sees |
+|---|---|---|---|
+| `needs_you` | `needs_you --key --what --step --where --when [--minutes] [--link]` | "Needs you", loud by day | the owner's five lines (below). Several due together go as **one** message, each step numbered; it turns `✅ Sorted: …` when the last of them is sorted |
+| `outage` | `outage --key --system <Website, ERP> [--who]` | "Needs you", always loud | `⚠️ Website is down since 11:05` / `Who: Platform` / `Do: nothing` / `When: now`. Resolve edits the same message to `✅ Website was down 12 min. Fixed.` / `Do: nothing` (an edit is silent; never a second message). Also a 🛑 row on the Ops board |
+| `good_news` | `good_news --text [--key] [--summary-only]` (the last two only on a host's file store) | "Good news", silent | `🎉 ERP: the purchase orders screen is live. Staff can use it now.` / `Do: nothing`. One key goes out once; `--summary-only` keeps it for the summary |
+| `summary` | `summary [--stores] [--progress <line>]…` | "Summary", 20:00 Damascus | ☀️ the five lines: what went live and what is in progress; `Who: you` with his first open step (and how many more) when something waits on him, else `Who: Platform`, `Do: nothing` and `Where: <the Ops board>`. No message on a day with nothing to say; once a day; needs a file store among `--stores` |
+| `ops` | `ops --key --text [--link] [--system] [--who]` | the Ops board only | nothing: one comment per problem and per resolve, the board's row ⚠️ then ✅ |
+
+- **The owner's format (owner, roadmap #59, 8 Nov 2026; K038).** Every owner-facing message is at most
+  five lines, plain words:
+  ```
+  🛑 <what's wrong, in business words>
+  Who: you | Platform | ERP | website
+  Do: <the exact action, or "nothing">
+  Where: <the exact place, e.g. "ERP chat">
+  When: <now | today | this week>
+  ```
+  The first line is an emoji and what happened; then only `Who:`, `Do:`, `Where:`, `When:`, in that
+  order, `Do:` always. A message whose Who is not him is not his: it goes to the Ops board or one summary
+  line, never to his group. No repository or issue numbers outside a quoted paste, no run ids, no
+  "alert 2 of 3", no thresholds, no instruction meant for an agent ("Resume it or record why it
+  waits"). `formatProblems` and `plainProblems` enforce it on every kind before it is sent, and the
+  template test runs every template through both, so no template ships outside the format. Several
+  alerts at once are one message, never several.
+- **Replies to the owner in chat and threads** keep the same five parts (what happened, who, what he
+  must do, where, when), one short line each, **without** the labels: start with the topic and end with
+  the status word (DONE, WAITING FOR YOU, WAITING ON, STOPPED). Only the bot's messages carry the labels
+  (owner, 8 Nov 2026).
+- **Stale work is the agents' backlog, never his** (K038). `stale.mjs` keeps its list in the "Stale
+  work" issue and, with `ALERTS_OPS_BOARD`, a row per item on the Ops board; it sends nothing to
+  Telegram, and closes a problem an earlier kit sent with `resolve --quiet` (no message). Missed
+  scheduled runs likewise.
+- **The Ops board** is one issue in the repository `ALERTS_OPS_BOARD` names (`github:<owner/name>`,
+  with `GH_TOKEN`), titled "Ops board" and found by its hidden marker. Its body is the live board
+  (state, since when, who is on it), edited at every change; resolved rows go after 7 days. No text on
+  it can @mention anyone. `notify.mjs board` opens it and prints its link. Pin it once (any session with write access can), and open it
+  with a bot or App token, not the owner's, so GitHub never subscribes him. A board call that fails is
+  retried by the next `tick`.
+- **Rule C, enforced.** `needs_you`, `outage`, `good_news` and `summary` refuse a text with a
+  filesystem path or file name, a size, an address or host name, a run or message id, an error code, or
+  "You: nothing" (`plainProblems`); a link may carry a path. A refused message is an error in the
+  sender's run, so its fixture catches it. `ops` carries technical text freely.
+- **Rule D.** No message carries a button (the template test checks the source).
+- **The clock.** A kind is never escalated or reminded: "Needs you" is already his, and the summary lists
+  what still waits on him. On a host, `needs_you` and `ops` are held 10 minutes like any problem; an
+  outage goes at once and is never capped. A stuck product wake (`pickup/<repo>#<n>`, infra I045) is a
+  `needs_you` with the line to paste as its step.
+- **Topics.** `setup` adds "Good news" and "Summary". Until it has run again, their messages reach the
+  group's General thread with the topic's name leading them.
+
+## The older senders go quiet (K039)
+
+- `problem` still works for a sender that has not moved, but the owner keeps only three topics:
+  `retire --topics kit,ops,daily` closes Platform's old ones (their history stays). A product's own
+  topic (`erp`, `website`) closes once that product's senders use kinds. A problem in a closed topic
+  closes without a reply. One still open there, or a new one a sender not yet moved raises there, moves
+  to the Ops board as an ops row (`retiredTopic` names where it was): never escalated, never retried.
+- `board --open` opens the Ops board if there is none and pins it. The bot or App runs it once
+  (`hands-alerts` mode `board`), before any host writes to the board, so the owner's own token never
+  opens it.
+- `ops` in a GitHub store with no `ALERTS_OPS_BOARD` is recorded as that repository's alert issue,
+  never sent; a host's reader (the VPS alerts job) mirrors such issues to the board. The kit's
+  `hands-report` reports this way.
+- `note --text [--link]` writes one line on the board's log with no row: what a host did by itself, a
+  maintenance notice, a monthly count.
+- `digest` is retired: it posts nothing (the evening summary and the board replace it). `test` sends
+  one silent message in "Summary" and edits it to ✅.
 
 ## The group
 
@@ -50,9 +124,18 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
    except `--outage` (a production outage), which is always loud.
 6. **Caps.** At most 5 new messages per topic per hour (10 in "Needs you"); the rest are kept and sent
    by a later tick. An outage is never capped.
-7. **Never success or progress.** A RESOLVED is the only good news, and only for a problem that was
-   sent. Routine news waits for the digest.
-8. **No sender talks to Telegram directly.** Everything goes through `notify.mjs`, so the rules hold
+7. **Capped problems** (`--max-sends N`, K035). A sender that checks the same thing every day (stale
+   work, stale data) opens its problem capped: the PROBLEM, then at most one STILL OPEN reply a day
+   (the owner's day) from the sender's own repeat while it stays open, N messages in all (the kit's
+   senders use 3). Never escalated, never reminded by `tick`; past N it is only a line in the digest,
+   marked "alerted N of N", until its RESOLVED. Not for an outage or "Needs you".
+8. **Stale is never OK.** A check that reads an outside source (a job's last run, a report page, an
+   API answer) and finds it older than its threshold says STALE, never OK, and opens a capped problem;
+   a check that could not read the source at all says so, never "none found" (K035).
+9. **Good news only as a kind (K037, superseding "never success").** Something people can use went
+   live is a `good_news` line, or a line in the evening summary. Routine progress, green runs and
+   technical success are never sent; they belong on the Ops board.
+10. **No sender talks to Telegram directly.** Everything goes through `notify.mjs`, so the rules hold
    everywhere (audit O10).
 
 ## Senders
@@ -82,11 +165,9 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
 Without the two secrets the problem is still recorded (an issue) and the next tick sends it, so a
 project can adopt the standard before its secrets exist, at the cost of the tick's delay.
 
-**A kit-installed workflow** (`harness-stale`) cannot hard-code the project's topic, so it reads it
-from the profile's `alerts.topic` (`erp`, `website`, or another project topic in `TOPICS`; never
-`needs` or `daily`; the Actions variable `ALERTS_TOPIC` overrides it), with the same store and
-secrets as above. Without a topic it
-alerts nobody; its own tracking issue still updates.
+**A kit-installed workflow** (`harness-stale`) sends nothing to Telegram (K038): its list is the
+"Stale work" issue, and with the Actions variable `ALERTS_OPS_BOARD` each item is also an Ops board row.
+The profile's `alerts.topic` is still read by senders that use the older `problem` form.
 
 **A host** (the VPS, the home server, the laptop): Node 18 or newer, the tool from a release tag, and a state file.
 

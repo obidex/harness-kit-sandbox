@@ -18,24 +18,29 @@
   `.claude/skills/<name>/SKILL.md` and load when named; review seats are subagents in
   `.claude/agents/` with read-only tools and a pinned model. The kit's own skills come from
   `.harness/templates/skills/<name>/` and are installed as `.claude/skills/<name>/` (kit-managed).
-- **A04 No plugin delivery.** Cloud threads do not load plugins, so kit files are installed as a
-  pinned copy in each project by `.harness/tools/harness.mjs`, listed with their hashes in
-  `.harness/kit.lock.json`, and changed only by maintenance PRs (`hands-update`, A14).
+  A Claude Projects cloud thread does not load project skills (A15): there a rule that names a
+  skill (`correct`, `inbox`) means reading its `.claude/skills/<name>/SKILL.md` and following it.
+- **A04 No plugin delivery.** Kit files are installed as a pinned copy in each project by
+  `.harness/tools/harness.mjs`, listed with their hashes in `.harness/kit.lock.json`, and changed
+  only by maintenance PRs (`hands-update`, A14). A plugin enabled on the account or in Project
+  settings does load in cloud threads, hooks included (tested Nov 2026: a `prompt.submit` and a
+  `tool.check` hook ran in a project thread), but a plugin is enabled by the owner, not by a
+  repository, so the kit never depends on one.
 - **A05 Settings are project-owned.** The kit does not manage `.claude/settings.json` (K001
   boundary). It records what projects keep there today: attribution turned off; deny `--admin`
   merges, force pushes, destructive git, `.env*` reads and edits to the settings file itself; a
   session never edits its own settings.
-- **A15 Settings load only in a one-repository session.** A cloud thread applies a repository's
-  `.claude/settings.json` (identity env, allow and deny rules, attribution) only while the session
-  has exactly one repository. Attaching a second one (`add_repo`) takes effect at the next resume,
-  and from then on the session runs without them: commits are authored as Claude and routine
-  pushes and edits reach the auto-mode classifier. So a project thread never attaches a second
-  repository: another repository's reads and writes go through the coordinator or the inbox (O14).
-  Identity comes from those settings, or in a project with several repositories from `git config`
-  in each clone before the first commit; a thread never re-authors a commit. Every project copies
-  the standing approvals from `standing-approvals.md` into its instructions. A refused routine
-  command is a settings fault: the coordinator fixes its cause (a fresh one-repository thread, or
-  an allow rule the owner adds), never an owner sentence per push.
+- **A15 Cloud threads load instructions, not settings.** A Claude Projects cloud thread loads
+  `CLAUDE.md` with its imports and `.claude/rules/`, but not a repository's `.claude/settings.json`
+  (identity env, allow and deny rules, attribution), hooks, skills or `.mcp.json`, whether the
+  project has one repository or several (Claude Projects docs, Nov 2026; observed: a thread's
+  `GIT_AUTHOR_NAME` unset and the project's skills absent). So: identity comes from `git config` in
+  each clone before the first commit, from the project instructions; a thread never re-authors a
+  commit. What must not be skipped is enforced where no session can skip it: rulesets, required
+  checks and the hands App's workflows (the scrubber, `harness-guard`). A skill a rule names is read
+  from its file (A03). Every project copies the standing approvals from `standing-approvals.md` into
+  its instructions. A refused routine command is a settings fault: the coordinator fixes its cause
+  (an allow rule the owner adds, or a plugin the owner enables), never an owner sentence per push.
 
 ## Working in a session
 
@@ -68,6 +73,15 @@
   several-repository project on 7-8 Oct 2026: nine refusals, every one a shell edit or a shell
   command after one; eleven file-tool edits of rule files in one thread, none refused. A refused
   shell edit is still reported (C14).
+- **A23 Name the model and the effort on every thread.** O06's roles, named as of Nov 2026: building
+  on the smallest reliable model (Sonnet 5.5 for clear, bounded work); Opus 5.5 for architecture,
+  accounting, security, hard or risky work, whatever the tier, and preferred for tier-3 review
+  (C10, O07); Haiku 5.5 only for reading logs and summarizing when that saves real work, never for
+  review or for money, stock or permission code. Plain status stays on existing checks, with no
+  extra turn. Effort: low for a log digest, the default for building, high only for a tier-3 design or a review. The coordinator names
+  both when it starts a thread; a thread never switches model mid-session. A long thread hands over
+  (C04) and starts clean (`/clear`, or a fresh thread) rather than compacting a cold context. The
+  coordinator reads `/usage` once a week and puts one line in the daily summary.
 
 ## GitHub enforcement
 
@@ -91,11 +105,36 @@
   after the merge and by a daily drift check, then read back (`hands.md`). Every write is logged
   in the control repository; a failure is one problem under the alert standard (O10, `alerts.md`).
 
+## Supply chain (K030)
+
+- **A17 New packages wait.** A dependency version is used only 3 to 7 days after its release:
+  Dependabot's `cooldown` on every ecosystem it updates, `min-release-age=3` in `.npmrc` (npm 11 or
+  later), and CI installs from the lockfile with `npm ci`, never `npm install`.
+- **A18 Actions pinned by commit.** Every action a workflow uses names a full commit SHA, its version
+  in a comment, or the repository's `.github/workflows/actions.lock` pins it and CI runs
+  `gh actions-lock --verify`. Dependabot moves the pins.
+- **A19 Least-privilege workflows.** No `pull_request_target` trigger. The workflow-level
+  `permissions` is read-only, and a job asks only for the writes it needs. A public repository runs
+  no job on a self-hosted runner. A self-hosted runner runs one job at a time and holds no
+  production secret.
+- **A20 A secret scan on every PR.** `harness-guard` scans each PR's commits with a pinned,
+  checksummed gitleaks and is a required check. A public repository also turns on GitHub's free
+  secret scanning and push protection in its settings file.
+- **A21 Agent configuration from trusted accounts.** A PR that changes what agents load or run
+  (`CLAUDE.md`, `AGENTS.md`, `.claude/**`, `.harness/**`, `.mcp.json`, plugin code, git hooks) or
+  `.github/**` passes `harness-guard` only when its author and every commit come from the profile's
+  `trusted_actors`, by numeric ID, read from the base branch. The workflow file runs from the PR, so
+  a session never merges a PR from an untrusted account that touches `.github/workflows/`, and merges
+  Dependabot's only when its workflow diff changes nothing but action pins.
+- **A22 Limits that expire are renewed.** A repository that limits who may comment or open issues
+  and PRs declares it in its settings file; the daily drift check applies it again before GitHub
+  lets it lapse (six months at most).
+
 ## Records
 
 | ID | Applies when | Expected outcome | Source | Verify |
 |---|---|---|---|---|
-| A01 | Claude Code is used | `CLAUDE.md` imports core, defaults and the rulebook; a fresh and a resumed session both answer the kit version correctly. | K001; ERP and WEB CLAUDE.md; PLATFORM (CLAUDE.md imports) | script: `CLAUDE.md` contains the three kit imports and their targets exist. judgment: `tools/probe-loading.sh` in a fresh session and after a resume. |
+| A01 | Claude Code is used | `CLAUDE.md` imports core, defaults and the rulebook; a fresh and a resumed session both answer the kit version correctly. | K001; ERP and WEB CLAUDE.md; PLATFORM (CLAUDE.md imports) | script: `CLAUDE.md` contains the three kit imports and their targets exist, and imports `AGENTS.md` when there is one. judgment: `tools/probe-loading.sh` in a fresh session and after a resume. |
 | A02 | Claude Code is used | No lookup file is imported; path rules carry `paths:`. | K001; ERP AGENTS §8, .claude/rules; PLATFORM | script: imports in `CLAUDE.md` exclude lookup files; each `.claude/rules/*.md` has `paths:`. |
 | A03 | the project uses skills or subagents | Review subagents declare read-only tools and a model. | ERP .claude/agents · D282; WEB .claude/agents | script: agent files in review roles have `tools:` without write tools and a `model:`. |
 | A04 | always | Kit files are present as a pinned copy with a recorded version. | K001 | script: `harness.mjs status`: `.harness/VERSION` matches the lock and every managed file matches its hash. |
@@ -109,5 +148,12 @@
 | A12 | the profile lists tier-3 paths | The guard runs on every PR including body edits. | ERP tier3-guard job; WEB tier3-guard step | script: workflow has the guard and the `edited` trigger. |
 | A13 | an unattended PR must pass checks and merge | Maintenance PRs come from an App or owner-created token and their checks run. | K001 (H2); PLATFORM (GITHUB_TOKEN events do not trigger workflows) | script: the maintenance PR's author is the App or token identity and its check runs exist. |
 | A14 | the kit is installed | Settings live in `.github/harness-settings.json` and the live repository matches it; only the hands App's reviewed workflows write them. | K007 (owner 4A) | script: the settings file is valid and the live repository matches it. |
-| A15 | a cloud thread works in a project | Each thread runs with exactly one repository and its settings loaded (commits authored as the owner, no classifier refusal on routine work); a project with several repositories sets identity with `git config` per clone; every project's instructions carry the standing-approvals block of `standing-approvals.md`, at its current `kit text`; no commit is re-authored. | K021, K022 | script: commits on recent PR branches are authored as the owner. judgment: the project instructions' block matches the kit's, filled in; sampled refusals traced to a missing-settings session and fixed at the cause, never one owner sentence per push. |
+| A15 | a cloud thread works in a project | Each thread sets identity with `git config` per clone (commits authored as the owner); what must not be skipped is enforced by rulesets and required checks, not by repository settings a cloud thread never loads; every project's instructions carry the standing-approvals block of `standing-approvals.md`, at its current `kit text`; no commit is re-authored. | K021, K022, K031 | script: commits on recent PR branches are authored as the owner. judgment: the project instructions' block matches the kit's, filled in; sampled refusals traced to a missing-settings session and fixed at the cause, never one owner sentence per push. |
 | A16 | a session without repository settings changes files | Files change through the file-edit and write tools; no shell-script edit of a rule file. | K023 | judgment: sampled refusals in sessions without settings name no file-tool edit; a refused shell edit was reported and not retried. |
+| A17 | the project installs packages | Dependabot waits at least 3 days on every ecosystem; npm projects set `min-release-age`; CI runs `npm ci`. | K030 (radar, roadmap #48 P2: ChainDrop, Aug 2026) | script: `.github/dependabot.yml` gives every update a `cooldown` with `default-days` of 3 to 7; with a `package.json`, `.npmrc` sets `min-release-age` of 3 or more and no workflow runs `npm install`. |
+| A18 | the project has workflows | Every remote action is pinned to a full commit SHA, or by a verified `actions.lock`. | K030 | script: every `uses:` naming a remote action ends in a 40-character SHA, or `actions.lock` exists and a workflow runs `gh actions-lock --verify`. |
+| A19 | the project has workflows | No `pull_request_target`; workflow-level permissions read-only; no self-hosted runner on a public repository; one job per runner and no production secret on it. | K030 | script: no workflow triggers on `pull_request_target`; the top-level `permissions` grants no write; on a public repository (read through the API) no job names a self-hosted runner and the `RUNNER` variable is not set. judgment: runner hosts run one job at a time and hold no production secret. |
+| A20 | the project has pull requests | `harness-guard` runs gitleaks on every PR and is required; a public repository's settings file turns on secret scanning and push protection. | K030 | script: `harness-guard.yml` is installed and the default branch's ruleset requires `harness-guard`; on a public repository the settings file enables both secret protections. |
+| A21 | agents work in the project | Agent-configuration changes pass only from trusted account IDs. | K030 | script: the profile names `trusted_actors` and `harness-guard.yml` is installed. judgment: sampled PRs that changed agent configuration or `.github/workflows/` came from those accounts; no untrusted PR touching `.github/workflows/` was merged on a green guard. |
+| A22 | GitHub hosts a public repo | The limit is declared and renewed before it lapses. | K030 | script: when the live repository has an interaction limit (read through the API), the settings file declares `interaction_limits`. |
+| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and never switched; long threads hand over instead of compacting cold; `/usage` is read weekly. | K032; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; the daily summaries carry a weekly usage line. |

@@ -1,12 +1,15 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # C15 no silent stall: once a day, lists open PRs (green-unmerged, red, conflicted, draft, waiting;
-# bot PRs too), inbox requests queued or working, and `card` or `risk:*` issues idle past their
-# thresholds (.harness/tools/stale.mjs) in ONE tracking issue "Stale work", updated in place and
-# closed when the list is empty. Alerts go through notify.mjs (O10, .harness/alerts.md): newly stale
-# items open the problem `stale:<repo>` in the project's topic (profile alerts.topic); an
-# empty list resolves it. Without the ALERTS_BOT_TOKEN / ALERTS_CHAT_ID secrets the problem is kept as
-# an issue for the next tick. Thresholds can be set with the Actions variables HARNESS_STALE_PR_DAYS,
-# _CONFLICT_DAYS, _INBOX_DAYS, _CARD_DAYS.
+# bot PRs too), inbox requests queued or working, `card` or `risk:*` issues, and, where the profile
+# names them, initiatives and C22 wait records, each idle past its threshold in hours
+# (.harness/tools/stale.mjs; the data is the profile's `stale` object, K036), in ONE tracking issue
+# "Stale work", updated in place and closed when the list is empty. Stale work is the agents' own
+# backlog and never reaches the owner's Telegram (K038): the list is what the coordinator works through,
+# and where the Actions variable ALERTS_OPS_BOARD names the Ops board each item is also a row there
+# (notify.mjs `ops`), ✅ when it moves. A problem an earlier kit sent is closed without a message. The
+# Telegram secrets below only let that quiet close reach old records. The Actions variables
+# HARNESS_STALE_PR_DAYS, _CONFLICT_DAYS, _INBOX_DAYS, _CARD_DAYS (days) still override the profile.
 # Safe on a self-hosted runner: it checks out only the default branch's .harness/tools, never PR code.
 # Cost (O13): one short job a day, about 30 GitHub-hosted minutes a month on a private repository
 # without a self-hosted RUNNER; none with one, or on a public repository.
@@ -50,7 +53,7 @@ jobs:
           ALERTS_STORE: github:${{ github.repository }}
           ALERTS_BOT_TOKEN: ${{ secrets.ALERTS_BOT_TOKEN }}
           ALERTS_CHAT_ID: ${{ secrets.ALERTS_CHAT_ID }}
-          ALERTS_TOPIC: ${{ vars.ALERTS_TOPIC }}
+          ALERTS_OPS_BOARD: ${{ vars.ALERTS_OPS_BOARD }}
           HARNESS_STALE_PR_DAYS: ${{ vars.HARNESS_STALE_PR_DAYS }}
           HARNESS_STALE_CONFLICT_DAYS: ${{ vars.HARNESS_STALE_CONFLICT_DAYS }}
           HARNESS_STALE_INBOX_DAYS: ${{ vars.HARNESS_STALE_INBOX_DAYS }}

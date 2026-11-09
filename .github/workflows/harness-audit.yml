@@ -1,4 +1,5 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # The kit's structural audit (.harness/audit/README.md §1). On a pull request it runs fully only when
 # kit, entry, agent or workflow files changed, and otherwise passes at once, so it can be a required
 # check. Weekly it also reads GitHub (rulesets, default-branch runs) and reports to one issue.

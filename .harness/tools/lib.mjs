@@ -36,6 +36,7 @@ export function validateSchema(schema, value) {
       if (s.pattern && !new RegExp(s.pattern).test(x)) err(path, `does not match ${s.pattern}`);
     }
     if (typeof x === 'number' && s.minimum !== undefined && x < s.minimum) err(path, `below ${s.minimum}`);
+    if (typeof x === 'number' && s.maximum !== undefined && x > s.maximum) err(path, `above ${s.maximum}`);
     if (Array.isArray(x)) {
       if (s.minItems && x.length < s.minItems) err(path, `fewer than ${s.minItems} items`);
       if (s.maxItems !== undefined && x.length > s.maxItems) err(path, `more than ${s.maxItems} items`);
@@ -132,7 +133,7 @@ export async function gh(path) {
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   if (token) headers.authorization = `Bearer ${token}`;
   try {
-    const r = await fetch(`https://api.github.com${path}`, { headers });
+    const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, { headers });
     const text = await r.text();
     let data = null;
     try { data = JSON.parse(text); } catch { data = text; }

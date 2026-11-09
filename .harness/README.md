@@ -19,7 +19,11 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Control panel: the channel-free core, its buttons, /status, decisions, the log; adapters: file, Telegram (K025) | `tools/panel.mjs` | Run, never loaded |
 | Questions for the owner on a card, answered with a panel button and written back by the hands App (K026) | `tools/ask.mjs`, `templates/hands/hands-answer.yml` | Run, never loaded |
 | Explain this failure: a panel press posted for the coordinator by the hands App, answered by a Claude session (K027, K028) | `tools/explain.mjs`, `templates/hands/hands-explain.yml` | Run, never loaded |
-| Stale work (C15): one daily tracking issue "Stale work"; missed scheduled runs (36 h overdue); alerts through `notify.mjs` | `tools/stale.mjs`, `templates/workflows/harness-stale.yml` | Run, never loaded |
+| Disposable, event-fired coordinators (K033): the `wake` label starts one fresh run through the project's scheduled task, one at a time, capped, with a daily backstop that stops when idle | `wake.md`, `tools/wake.mjs`, `templates/workflows/harness-wake.yml` | Lookup |
+| Stale work (C15): one daily tracking issue "Stale work"; thresholds in hours as data (profile `stale`, K035), a board's initiatives and wait records too; one capped alert per stale item (once a day, 3 in all); missed scheduled runs (36 h overdue) | `tools/stale.mjs`, `templates/workflows/harness-stale.yml` | Run, never loaded |
+| Action groups (K035): every workflow names `auto` or `approval`; `human` (payments, spending, design picks) is never automated | `tools/actions.mjs` | Run, never loaded |
+| Supply-chain floor (K030): `harness-guard`, a required PR check that runs gitleaks on the PR's commits and lets only the profile's `trusted_actors` change agent configuration | `tools/guard.mjs`, `templates/workflows/harness-guard.yml`; rules A17-A22 | Run, never loaded |
+| Measuring the agents (K034): GitHub numbers for the health page, the always-loaded token budget (audit C17), the replay set for rule and model changes | `metrics.md`, `tools/metrics.mjs`, `tools/load.mjs` | Lookup; tools run, never loaded |
 | Audit: structural script and judgment review | `tools/audit.mjs`, `audit/README.md` | Run, never loaded |
 | Installer and updater | `tools/harness.mjs`, workflows from `templates/workflows/` (each on the project's `RUNNER` lane, `hands.md`) | Run, never loaded |
 | Kit skills: `correct` (C19 prevention ladder), `inbox` (O14 requests) | `templates/skills/<name>/`, installed as `.claude/skills/<name>/` | Loaded when named |

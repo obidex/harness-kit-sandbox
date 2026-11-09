@@ -50,6 +50,9 @@ export function covers(live, want) {
   return live === want;
 }
 
+/** Days before an interaction limit expires when the drift check applies it again (K030). */
+export const INTERACTION_RENEW_DAYS = 30;
+const EXPIRY_DAYS = { one_day: 1, three_days: 3, one_week: 7, one_month: 30, six_months: 180 };
 const RULESET_KEYS = ['name', 'target', 'enforcement', 'conditions', 'rules', 'bypass_actors'];
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));
 const color = (c) => String(c || '').replace(/^#/, '').toLowerCase();
@@ -58,13 +61,22 @@ const color = (c) => String(c || '').replace(/^#/, '').toLowerCase();
  * The writes that make live match desired. live = { repository, rulesets: [full ruleset], labels: [label] }.
  * Each step: { what, call: { method, path, body } }.
  */
-export function plan(repo, desired, live) {
+export function plan(repo, desired, live, now = Date.now()) {
   const steps = [];
   const base = `/repos/${repo}`;
   const repoWant = desired.repository || {};
-  const repoDiff = Object.fromEntries(Object.entries(repoWant).filter(([k, v]) => live.repository?.[k] !== v));
+  // an object value (security_and_analysis) matches when every key it names matches live
+  const repoDiff = Object.fromEntries(Object.entries(repoWant).filter(([k, v]) => (v && typeof v === 'object' ? !covers(live.repository?.[k], v) : live.repository?.[k] !== v)));
   if (Object.keys(repoDiff).length) {
     steps.push({ what: `repository: ${Object.entries(repoDiff).map(([k, v]) => `${k} ${JSON.stringify(live.repository?.[k])} → ${JSON.stringify(v)}`).join(', ')}`, call: { method: 'PATCH', path: base, body: repoDiff } });
+  }
+  if (desired.interaction_limits) {
+    // GitHub lifts a limit when it expires, so one close to its end is applied again (K030)
+    const want = desired.interaction_limits, have = live.interaction_limits || {};
+    const days = want.renew_days ?? INTERACTION_RENEW_DAYS;
+    const left = have.expires_at ? (Date.parse(have.expires_at) - now) / 86400000 : -1;
+    const why = !have.limit ? 'none is set' : have.limit !== want.limit ? `${have.limit} → ${want.limit}` : left < days ? `${Math.max(0, Math.floor(left))} day(s) left, under ${days}` : '';
+    if (why) steps.push({ what: `interaction limits: ${want.limit} for ${want.expiry} (${why})`, call: { method: 'PUT', path: `${base}/interaction-limits`, body: { limit: want.limit, expiry: want.expiry } } });
   }
   if (desired.rulesets) {
     const liveByName = new Map((live.rulesets || []).map((r) => [r.name, r]));
@@ -132,6 +144,8 @@ export function unsafe(settings) {
   const errors = [];
   const guarded = (settings.rulesets || []).some((r) => r.target === 'branch' && r.enforcement === 'active' && r.rules.some((x) => x.type === 'required_status_checks'));
   if (settings.repository?.allow_auto_merge && !guarded) errors.push('allow_auto_merge without an active branch ruleset requiring checks: auto-merge would merge at once');
+  const il = settings.interaction_limits;
+  if (il && (il.renew_days ?? INTERACTION_RENEW_DAYS) >= EXPIRY_DAYS[il.expiry]) errors.push(`interaction_limits: renew_days (${il.renew_days ?? INTERACTION_RENEW_DAYS}) must be under the ${il.expiry} expiry (${EXPIRY_DAYS[il.expiry]} days), or every run would apply it again`);
   if (settings.prune?.rulesets && !(settings.rulesets || []).some((r) => r.target === 'branch' && r.enforcement === 'active')) errors.push('prune.rulesets with no active branch ruleset named: it would delete all branch protection');
   return errors;
 }
@@ -240,7 +254,7 @@ const must = async (method, path, body) => {
   return r.data;
 };
 
-async function liveState(repo) {
+async function liveState(repo, { interaction = true } = {}) {
   const repository = await must('GET', `/repos/${repo}`);
   const list = await must('GET', `/repos/${repo}/rulesets?per_page=100`);
   const rulesets = await Promise.all(list.filter((r) => r.source_type !== 'Organization').map((r) => must('GET', `/repos/${repo}/rulesets/${r.id}`)));
@@ -250,7 +264,15 @@ async function liveState(repo) {
     labels.push(...l);
     if (l.length < 100) break;
   }
-  return { repository, rulesets, labels };
+  // read only when the file names them, so a repository without them needs no extra access;
+  // GitHub answers {} (or 204) when no limit is set
+  let interaction_limits = {};
+  if (interaction) {
+    const il = await api('GET', `/repos/${repo}/interaction-limits`);
+    if (il.status !== 200 && il.status !== 204) throw new Error(`GET /repos/${repo}/interaction-limits answered ${il.status}`);
+    if (il.status === 200 && il.data && typeof il.data === 'object') interaction_limits = il.data;
+  }
+  return { repository, rulesets, labels, interaction_limits };
 }
 
 async function fileOnDefault(repo, path) {
@@ -267,7 +289,7 @@ async function planRepo(repo, text) {
   const errors = validateSchema(schema(), desired);
   if (!errors.length) errors.push(...unsafe(desired));
   if (errors.length) throw new Error(`${repo}: ${SETTINGS_PATH} is invalid: ${errors.join('; ')}`);
-  return plan(repo, desired, await liveState(repo));
+  return plan(repo, desired, await liveState(repo, { interaction: !!desired.interaction_limits }));
 }
 
 /** The App's repositories that carry a settings file or a kit lock. */
@@ -362,10 +384,15 @@ async function main() {
   if (cmd === 'export') {
     const live = await liveState(repo);
     const keys = Object.keys(schema().properties.repository.properties);
+    const repository = pick(live.repository, keys.filter((k) => k !== 'security_and_analysis'));
+    const sa = live.repository.security_and_analysis || {};
+    const secrets = pick(sa, ['secret_scanning', 'secret_scanning_push_protection']);
+    if (Object.keys(secrets).length) repository.security_and_analysis = Object.fromEntries(Object.entries(secrets).map(([k, v]) => [k, { status: v.status }]));
     const out = {
-      repository: pick(live.repository, keys),
+      repository,
       rulesets: live.rulesets.filter((r) => r.target === 'branch').map((r) => pick(r, RULESET_KEYS)),
       labels: live.labels.map((l) => ({ name: l.name, color: l.color, ...(l.description ? { description: l.description } : {}) })),
+      ...(live.interaction_limits.limit ? { interaction_limits: { limit: live.interaction_limits.limit, expiry: 'six_months' } } : {}),
     };
     console.log(JSON.stringify(out, null, 2));
     return;
