@@ -131,7 +131,8 @@
         "decisions": { "type": "string" },
         "decision_prefix": { "type": "string" },
         "generated": { "type": "array", "items": { "type": "string" } },
-        "caps": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "description": "File path → maximum bytes (C17)." }
+        "caps": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "description": "File path → maximum bytes (C17)." },
+        "load_budget_tokens": { "type": "integer", "minimum": 1000, "maximum": 30000, "description": "Estimated tokens a session loads before its first word: CLAUDE.md, its @-imports and unconditional .claude/rules (C17, K034; .harness/tools/load.mjs). Default 8000." }
       }
     },
     "alerts": {
@@ -171,6 +172,30 @@
           "why": { "type": "string" },
           "decision": { "type": "string", "description": "The project decision that records it." }
         }
+      }
+    },
+    "trusted_actors": {
+      "description": "Optional (K030, A21). The GitHub accounts, by numeric user ID, whose pull requests may change agent configuration (CLAUDE.md, AGENTS.md, .claude/**, .harness/**, .mcp.json, plugin code, git hooks): the owner and the hands App's bot user. harness-guard reads this list from the base branch; without it the guard only warns.",
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "login"],
+        "properties": { "id": { "type": "integer", "minimum": 1 }, "login": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "stale": {
+      "description": "Optional. The stale-work check's data (stale.mjs, K035): thresholds in hours, which issue labels are a board's initiatives and its C22 wait records, which kinds to watch, and how many alerts one stale item may send (at most one a day).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hours": { "type": "object", "additionalProperties": false, "description": "Idle hours before an item is stale. Defaults: pr 48, conflict 24, inbox 24, card 48, initiative 48, wait 48.",
+          "properties": { "pr": { "type": "number", "minimum": 1 }, "conflict": { "type": "number", "minimum": 1 }, "inbox": { "type": "number", "minimum": 1 }, "card": { "type": "number", "minimum": 1 }, "initiative": { "type": "number", "minimum": 1 }, "wait": { "type": "number", "minimum": 1 } } },
+        "initiative_labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "wait_labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "watch": { "type": "array", "items": { "enum": ["pr", "card", "inbox", "initiative", "wait"] }, "uniqueItems": true, "minItems": 1 },
+        "alerts_max": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Read for old profiles; unused since 0.35.0 (K038): stale work never reaches Telegram." }
       }
     },
     "kit_updates": {

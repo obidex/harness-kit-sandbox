@@ -1,0 +1,79 @@
+# Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
+# Disposable, event-fired coordinators (K033, .harness/wake.md): the label `wake` on an issue or pull
+# request starts one fresh coordinator run through the project's scheduled task (/fire), at most one at
+# a time (the claim label `coordinator-running` on the STATE issue), and the job posts the run's
+# session link as the receipt. When a run removes its claim, a still-queued wake starts the next run.
+# Once a day the backstop starts a run only if a script sees work (a queued wake, a dead run's claim,
+# C15 stale work); it stops after 3 empty days, or after 3 runs for the same work with nothing moved
+# (one red exception). Caps (wake.mjs): 8 runs a day per repository, 3 a day per issue, counted from
+# this job's own receipts. Stops that hold until a person lifts them: an issue that started 9 runs in
+# 30 days or made no progress (`wake-stopped`); 3 failed starts or 8 hand-offs in a row (`wake-paused`).
+# Inert until the project sets the Actions variable WAKE_ROUTINE_URL and the secret WAKE_ROUTINE_TOKEN
+# (.harness/wake.md "Setup"): with no URL every job is skipped and costs nothing.
+# Safe on a self-hosted runner: it runs only the default branch's .harness/tools, never PR scripts, and
+# never for a pull request from a fork or Dependabot (no secret there). Like any workflow, a same-repo
+# PR runs this file as the PR has it; harness-guard limits who may change .github/.
+# Cost (O13): a few seconds per wake label, claim release and daily backstop, about one GitHub-hosted
+# minute each on a private repository without a self-hosted RUNNER; none with one, or on a public
+# repository. Each run started is one Claude Code session on the owner's subscription, never money.
+name: harness-wake
+
+on:
+  issues:
+    types: [labeled, unlabeled]
+  pull_request:
+    types: [labeled]
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: 'Issue or pull request to wake the coordinator for (optional)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# One decision at a time. GitHub keeps only the newest pending run of a group; a dropped one loses
+# nothing, because its `wake` label stays and the end of the current run, or the backstop, reads it.
+concurrency:
+  group: harness-wake
+  cancel-in-progress: false
+
+jobs:
+  wake:
+    if: >-
+      vars.WAKE_ROUTINE_URL != '' && (
+      (github.event.action == 'labeled' && github.event.label.name == 'wake' &&
+       (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'))) ||
+      (github.event.action == 'unlabeled' && github.event.label.name == 'coordinator-running') ||
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write          # the STATE issue, its claim label and the receipts
+      pull-requests: read    # the stale scan of the backstop
+      checks: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .harness/tools
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Start a coordinator run if this event calls for one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WAKE_ROUTINE_URL: ${{ vars.WAKE_ROUTINE_URL }}
+          WAKE_ROUTINE_TOKEN: ${{ secrets.WAKE_ROUTINE_TOKEN }}
+          WAKE_DAILY_CAP: ${{ vars.WAKE_DAILY_CAP }}
+          EVENT: ${{ github.event_name == 'issues' && github.event.action || github.event_name == 'pull_request' && 'labeled' || github.event_name }}
+          ISSUE: ${{ github.event.issue.number || github.event.pull_request.number || inputs.issue }}
+          LABEL: ${{ github.event.label.name }}
+        run: node .harness/tools/wake.mjs fire --repo "$GITHUB_REPOSITORY" --event "$EVENT" ${ISSUE:+--issue "$ISSUE"} ${LABEL:+--label "$LABEL"}

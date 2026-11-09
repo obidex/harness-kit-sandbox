@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { parseYaml, triggers, gh, validateSchema, fileHash } from './lib.mjs';
 import { scrub } from './scrub.mjs';
 import { plan as settingsPlan, validate as settingsValidate, SETTINGS_PATH } from './hands.mjs';
+import { loadSet, DEFAULT_BUDGET } from './load.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
@@ -40,7 +41,7 @@ const git = (...a) => { try { return execFileSync('git', ['-C', root, ...a], { e
 const lsFiles = git('ls-files');
 const tracked = (lsFiles || '').split('\n').filter(Boolean);
 // Rules that scan tracked files or history decide nothing without git: UNKNOWN, never PASS.
-const NEEDS_GIT = new Set(['A02', 'A03', 'A06', 'A09', 'A10', 'A12', 'C02', 'C08', 'C09', 'C15', 'C17', 'O09', 'DB01', 'DB02', 'DB03', 'DB05', 'RJ01', 'RJ02', 'RJ04', 'SD03', 'HI02', 'PI03', 'PW02', 'BL03']);
+const NEEDS_GIT = new Set(['A02', 'A03', 'A06', 'A09', 'A10', 'A12', 'C02', 'C08', 'C09', 'C15', 'C17', 'O09', 'DB01', 'DB02', 'DB03', 'DB05', 'RJ01', 'RJ02', 'RJ04', 'A17', 'A18', 'A19', 'A20', 'A21', 'SD03', 'HI02', 'PI03', 'PW02', 'BL03']);
 const short = (s, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 // --- the kit's rule list, read from the kit's own layer files ------------------------------------
@@ -75,7 +76,7 @@ const deny = settings?.permissions?.deny || [];
 const api = {};
 async function load() {
   if (!repo) return;
-  const [rs, labels, runs, issues, pulls, comments, repoInfo] = await Promise.all([
+  const [rs, labels, runs, issues, pulls, comments, repoInfo, limits] = await Promise.all([
     gh(`/repos/${repo}/rulesets?includes_parents=true`),
     gh(`/repos/${repo}/labels?per_page=100`),
     gh(`/repos/${repo}/actions/runs?branch=${encodeURIComponent(defaultBranch)}&event=push&per_page=30`),
@@ -83,7 +84,15 @@ async function load() {
     gh(`/repos/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=30`),
     gh(`/repos/${repo}/issues/comments?sort=updated&direction=desc&per_page=50`),
     gh(`/repos/${repo}`),
+    gh(`/repos/${repo}/interaction-limits`),
   ]);
+  api.limits = limits;
+  // whether the kit templates' `vars.RUNNER` lane is set (A19 on a public repository)
+  // (a repository variable, or an organisation's, which the repository endpoint does not list)
+  if (repoInfo.status === 200 && repoInfo.data?.private === false) {
+    api.runnerVar = await gh(`/repos/${repo}/actions/variables/RUNNER`);
+    if (repoInfo.data?.owner?.type === 'Organization') api.orgVars = await gh(`/repos/${repo}/actions/organization-variables?per_page=30`);
+  }
   api.rulesets = rs; api.labels = labels; api.runs = runs; api.issues = issues; api.pulls = pulls; api.comments = comments; api.repo = repoInfo;
   if (rs.status === 200 && Array.isArray(rs.data)) {
     api.rulesetDetails = await Promise.all(rs.data.filter((r) => r.target === 'branch').map((r) => gh(`/repos/${repo}/rulesets/${r.id}`)));
@@ -156,6 +165,18 @@ const exceptCommits = (id, log) => {
   return { kept, skipped: all.length - kept.length, note: all.length - kept.length ? `; ${all.length - kept.length} known exception(s) in the baseline skipped` : '' };
 };
 
+// --- the supply-chain floor (K030) -------------------------------------------------------------------------
+const SUPPLY = new Set(['A17', 'A18', 'A19', 'A20', 'A21', 'A22']);
+const settingsFile = (() => { try { return JSON.parse(read('.github/harness-settings.json')); } catch { return null; } })();
+const isPublic = () => (api.repo?.status === 200 ? api.repo.data.private === false : undefined);
+/** The `runs-on` of a job as text (a label, a list, or an expression). */
+const runsOn = (j) => (Array.isArray(j['runs-on']) ? j['runs-on'].join(',') : typeof j['runs-on'] === 'object' && j['runs-on'] ? JSON.stringify(j['runs-on']) : String(j['runs-on'] ?? ''));
+/** Every `uses:` in a workflow: job-level (reusable workflows) and step-level. */
+const usesOf = (w) => w.jobs.flatMap(([k, j]) => [...(j.uses ? [{ job: k, uses: String(j.uses) }] : []), ...(Array.isArray(j.steps) ? j.steps : []).filter((s) => s && s.uses).map((s) => ({ job: k, uses: String(s.uses) }))]);
+/** True when a permissions value grants no write. */
+// (the kit's YAML reader keeps a flow mapping such as `{}` or `{ contents: read }` as text)
+const readOnly = (p) => p === 'read-all' || (typeof p === 'string' && /^\{.*\}$/.test(p.trim()) && !/write/.test(p)) || (p && typeof p === 'object' && Object.values(p).every((v) => v === 'read' || v === 'none')) || (p && typeof p === 'object' && !Object.keys(p).length);
+
 const checks = {
   // ---- adapter: loading and settings
   A01() {
@@ -166,7 +187,9 @@ const checks = {
     if (missing.length) return [FAIL, `CLAUDE.md does not import ${missing.join(', ')}`];
     const absent = need.map((i) => i.slice(1)).filter((p) => !has(p));
     if (absent.length) return [FAIL, `imported but missing: ${absent.join(', ')}`];
-    return [PASS, 'CLAUDE.md imports core, owner defaults and VERSION, and they exist (fresh-session and resume probes: judgment review)'];
+    // the rulebook: a cloud thread loads CLAUDE.md and its imports, never AGENTS.md by itself
+    if (has('AGENTS.md') && !/^@(\.\/)?AGENTS\.md\s*$/m.test(t)) return [FAIL, 'AGENTS.md exists but CLAUDE.md does not import it (@AGENTS.md), so no Claude session loads the rulebook'];
+    return [PASS, `CLAUDE.md imports core, owner defaults and VERSION${has('AGENTS.md') ? ' and the rulebook (AGENTS.md)' : ''}, and they exist (fresh-session and resume probes: judgment review)`];
   },
   A02() {
     const imports = has('CLAUDE.md') ? [...read('CLAUDE.md').matchAll(/^@(\S+)/gm)].map((m) => m[1]) : [];
@@ -377,6 +400,11 @@ const checks = {
       const n = Buffer.byteLength(read(f));
       if (n > max) problems.push(`${f} ${n} B > cap ${max}`);
     }
+    // the whole always-loaded set against its token budget (K034): per-file caps alone let it grow
+    const budget = profile.canon.load_budget_tokens || DEFAULT_BUDGET;
+    const load = loadSet(root);
+    if (!load.files.length) problems.push('no CLAUDE.md, so nothing is loaded (A01)');
+    if (load.tokens > budget) problems.push(`always-loaded set about ${load.tokens} tokens > budget ${budget} (${load.files.map((f) => f.path).join(', ')}; node .harness/tools/load.mjs lists it)`);
     const d = profile.canon.decisions;
     if (!has(d)) problems.push(`decisions file ${d} missing`);
     else {
@@ -387,7 +415,7 @@ const checks = {
     for (const g of profile.canon.generated || []) if (!has(g)) problems.push(`generated ${g} missing`);
     const drift = (profile.canon.generated || []).length && /git diff --exit-code|--check|drift/i.test(wfText);
     if ((profile.canon.generated || []).length && !drift) problems.push('no CI drift check for generated references found');
-    return problems.length ? [FAIL, short(problems.join('; '), 500)] : [PASS, `caps hold (${Object.keys(profile.canon.caps || {}).length} files); ${d} only gained lines in its last 50 commits; generated references have a drift check`];
+    return problems.length ? [FAIL, short(problems.join('; '), 500)] : [PASS, `caps hold (${Object.keys(profile.canon.caps || {}).length} files); always-loaded set about ${load.tokens} of ${budget} tokens; ${d} only gained lines in its last 50 commits; generated references have a drift check`];
   },
 
   // ---- owner defaults
@@ -511,6 +539,95 @@ const checks = {
     }
     return bad.length ? [FAIL, short(bad.join('; '), 400)] : [PASS, `${workflows.length} workflows declare permissions; no privileged trigger checks out an untrusted head`];
   },
+  A17() {
+    const problems = [];
+    let dep = null;
+    const depFile = ['.github/dependabot.yml', '.github/dependabot.yaml'].find(has);
+    if (depFile) { try { dep = parseYaml(read(depFile)); } catch { problems.push(`${depFile} does not parse`); } }
+    const updates = Array.isArray(dep?.updates) ? dep.updates : [];
+    if (!depFile) problems.push('no .github/dependabot.yml');
+    for (const u of updates) {
+      const d = Number(u?.cooldown?.['default-days']);
+      if (!(d >= 3 && d <= 7)) problems.push(`dependabot ${u?.['package-ecosystem'] || '?'} ${u?.directory || u?.directories || ''}: cooldown default-days ${Number.isFinite(d) ? d : 'missing'} (3 to 7)`);
+    }
+    const npm = tracked.some((f) => /(^|\/)package\.json$/.test(f) && !f.includes('node_modules/'));
+    if (npm) {
+      const age = has('.npmrc') ? Number((read('.npmrc').match(/^\s*min-release-age\s*=\s*(\d+)/m) || [])[1]) : NaN;
+      if (!(age >= 3)) problems.push(`.npmrc: min-release-age ${Number.isFinite(age) ? age : 'not set'} (3 or more)`);
+      // a global tool install (npm install -g) is not a project install
+      const installs = workflows.filter((w) => w.text.split('\n').some((l) => !/^\s*#/.test(l) && /(^|[\s;&|(])npm (install|i|add)(\s|$)/.test(l) && !/\s(-g|--global)(\s|$)/.test(l))).map((w) => w.file);
+      if (installs.length) problems.push(`npm install in ${installs.join(', ')} (use npm ci)`);
+    }
+    return problems.length ? [FAIL, short(problems.join('; '), 400)] : [PASS, `${updates.length} Dependabot update(s) cool down 3-7 days${npm ? '; .npmrc min-release-age set; CI uses npm ci' : ''}`];
+  },
+  A18() {
+    if (!workflows.length) return [NA, 'no workflows'];
+    const lock = has('.github/workflows/actions.lock') && /gh actions-lock --verify/.test(wfText);
+    if (lock) return [PASS, '.github/workflows/actions.lock pins every action and CI verifies it'];
+    const bad = [];
+    for (const w of workflows) for (const u of usesOf(w)) {
+      if (u.uses.startsWith('./') || /^docker:\/\/[^@]+@sha256:[0-9a-f]{64}$/.test(u.uses)) continue;
+      if (!/@[0-9a-f]{40}$/.test(u.uses)) bad.push(`${w.file}#${u.job}: ${u.uses}`);
+    }
+    return bad.length ? [FAIL, `${bad.length} action(s) not pinned by commit: ${short(bad.join(', '), 400)}`] : [PASS, `${workflows.length} workflows: every remote action pinned to a full commit SHA`];
+  },
+  A19() {
+    if (!workflows.length) return [NA, 'no workflows'];
+    const bad = [];
+    for (const w of workflows) {
+      if (w.on.includes('pull_request_target')) bad.push(`${w.file}: pull_request_target`);
+      if (w.wf.permissions !== undefined && !readOnly(w.wf.permissions)) bad.push(`${w.file}: workflow-level permissions grant writes (${JSON.stringify(w.wf.permissions)})`);
+      if (w.wf.permissions === undefined) bad.push(`${w.file}: no workflow-level permissions (GitHub's default may grant writes)`);
+    }
+    const pub = isPublic();
+    // a literal self-hosted label fails; the kit's `vars.RUNNER || 'ubuntu-latest'` lane fails only when
+    // the RUNNER variable is set (404: not set, so those jobs run GitHub-hosted)
+    let runnerUnknown = false;
+    if (pub) for (const w of workflows) for (const [k, j] of w.jobs) {
+      const r = runsOn(j);
+      if (/self-hosted/.test(r)) bad.push(`${w.file}#${k}: a self-hosted runner on a public repository`);
+      else if (/vars\.RUNNER/.test(r)) {
+        const orgSet = api.orgVars?.status === 200 && (api.orgVars.data?.variables || []).some((v) => v.name === 'RUNNER');
+        // one page (30, the endpoint's most): a longer list may hide RUNNER, so it is unread, never clear
+        const orgUnread = api.orgVars && (api.orgVars.status !== 200 || (api.orgVars.data?.total_count ?? 0) > (api.orgVars.data?.variables || []).length);
+        if (api.runnerVar?.status === 200 || orgSet) bad.push(`${w.file}#${k}: the RUNNER variable is set on a public repository${orgSet ? ' (by its organisation)' : ''}`);
+        else if (api.runnerVar?.status !== 404 || orgUnread) runnerUnknown = true;
+      }
+    }
+    if (bad.length) return [FAIL, short(bad.join('; '), 400)];
+    if (runnerUnknown) return [UNKNOWN, `public repository; whether the RUNNER variable is set: ${noAccess(api.runnerVar)}`];
+    if (pub === undefined) return [UNKNOWN, `${workflows.length} workflows: no pull_request_target, read-only workflow permissions; whether the repository is public: ${noAccess(api.repo)}`];
+    return [PASS, `${workflows.length} workflows: no pull_request_target, read-only workflow permissions${pub ? ', no self-hosted runner on this public repository' : ''} (runner hosts: judgment review)`];
+  },
+  A20() {
+    const problems = [];
+    if (!has('.github/workflows/harness-guard.yml')) problems.push('harness-guard.yml is not installed');
+    const pub = isPublic();
+    if (pub) {
+      const sa = settingsFile?.repository?.security_and_analysis || {};
+      if (sa.secret_scanning?.status !== 'enabled' || sa.secret_scanning_push_protection?.status !== 'enabled') problems.push('public repository: the settings file does not enable secret scanning and push protection');
+    }
+    if (problems.length) return [FAIL, problems.join('; ')];
+    const b = branchRules();
+    if (!b || b.unreadableBypass) return [UNKNOWN, `harness-guard.yml installed; whether it is required: ${noAccess(api.rulesets)}`];
+    return b.checks.includes('harness-guard') ? [PASS, `harness-guard is required by ${b.names.join(', ')}${pub ? '; secret scanning and push protection declared' : ''}`] : [FAIL, `harness-guard.yml installed, but the ruleset does not require harness-guard (required: ${b.checks.join(', ') || 'none'})`];
+  },
+  A21() {
+    const problems = [];
+    if (!has('.github/workflows/harness-guard.yml')) problems.push('harness-guard.yml is not installed');
+    if (!profile) return [UNKNOWN, 'no valid profile, so trusted_actors is unknown'];
+    if (!(profile.trusted_actors || []).length) problems.push('the profile names no trusted_actors, so the guard only warns');
+    return problems.length ? [FAIL, problems.join('; ')] : [PASS, `the guard trusts ${profile.trusted_actors.map((a) => a.login).join(', ')} (sampled PRs: judgment review)`];
+  },
+  A22() {
+    if (!repo) return [UNKNOWN, noAccess(undefined)];
+    // GitHub sets interaction limits on public repositories only (a private one answers 405)
+    if (isPublic() === false) return [NA, 'a private repository: interaction limits apply only to public ones'];
+    if (api.limits?.status !== 200) return [UNKNOWN, `interaction limits: ${noAccess(api.limits)}`];
+    const live = api.limits.data && api.limits.data.limit;
+    if (!live) return [settingsFile?.interaction_limits ? FAIL : PASS, settingsFile?.interaction_limits ? 'the settings file declares interaction limits but none is live (lapsed; the drift check should have applied it)' : 'no interaction limit is live or declared'];
+    return settingsFile?.interaction_limits?.limit === live ? [PASS, `${live} until ${api.limits.data.expires_at}; declared, so the drift check renews it`] : [FAIL, `a live ${live} limit the settings file does not declare: it lapses on ${api.limits.data.expires_at} and nothing renews it`];
+  },
   SD03() {
     if (!settings) return [FAIL, 'no readable .claude/settings.json'];
     const envDeny = deny.some((d) => /^Read\(\.?\/?\.env\*?\)/.test(d));
@@ -573,7 +690,13 @@ const results = rules.map(({ id, title }) => {
   const gate = applicability(id);
   if (gate) return { id, title, result: gate[0], evidence: gate[1], how: 'applicability' };
   if (!checks[id]) return { id, title, result: UNKNOWN, evidence: 'judgment-only: settled by the judgment review', how: 'judgment' };
-  try { const [result, evidence] = checks[id](); return { id, title, result, evidence, how: 'script' }; }
+  try {
+    const [result, evidence] = checks[id]();
+    // the supply-chain floor is adopted by naming trusted_actors (K030); until then a kit update must
+    // not turn a project's audit red, so its FAILs read UNKNOWN with what is missing
+    if (result === FAIL && SUPPLY.has(id) && !(profile?.trusted_actors || []).length) return { id, title, result: UNKNOWN, evidence: `not adopted yet (K030: name trusted_actors in the profile): ${evidence}`, how: 'script' };
+    return { id, title, result, evidence, how: 'script' };
+  }
   catch (e) { return { id, title, result: UNKNOWN, evidence: `check could not run: ${e.message}`, how: 'script' }; }
 });
 

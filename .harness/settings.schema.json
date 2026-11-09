@@ -25,7 +25,16 @@
         "has_issues": { "type": "boolean" },
         "has_wiki": { "type": "boolean" },
         "has_projects": { "type": "boolean" },
-        "web_commit_signoff_required": { "type": "boolean" }
+        "web_commit_signoff_required": { "type": "boolean" },
+        "security_and_analysis": {
+          "description": "GitHub's free secret protections (K030). Free on a public repository; a private one needs a paid plan, so its file leaves this out.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secret_scanning": { "type": "object", "additionalProperties": false, "required": ["status"], "properties": { "status": { "enum": ["enabled", "disabled"] } } },
+            "secret_scanning_push_protection": { "type": "object", "additionalProperties": false, "required": ["status"], "properties": { "status": { "enum": ["enabled", "disabled"] } } }
+          }
+        }
       }
     },
     "rulesets": {
@@ -56,6 +65,17 @@
           "color": { "type": "string", "pattern": "^[0-9a-fA-F]{6}$" },
           "description": { "type": "string" }
         }
+      }
+    },
+    "interaction_limits": {
+      "description": "Who may comment, open issues and open pull requests (K030), as PUT /repos/{owner}/{repo}/interaction-limits takes it. GitHub lifts a limit when it expires (six months at most), so the drift check applies it again once fewer than renew_days days (default 30) are left.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limit", "expiry"],
+      "properties": {
+        "limit": { "enum": ["existing_users", "contributors_only", "collaborators_only"] },
+        "expiry": { "enum": ["one_day", "three_days", "one_week", "one_month", "six_months"] },
+        "renew_days": { "type": "integer", "minimum": 1, "maximum": 60 }
       }
     },
     "prune": {

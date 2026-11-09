@@ -101,8 +101,8 @@ async function main() {
   try {
     await api(t.method, t.path, { body: clean });
   } catch (e) {
-    // a fork PR's review events get a read-only token: say so on the run, do not turn it red
-    if (e.status === 403 && process.env.GITHUB_EVENT_NAME?.startsWith('pull_request_review')) { console.log(`::warning::scrub: ${t.path}: attribution left; this event's token is read-only (${e.message})`); return; }
+    // a fork's or Dependabot's PR events get a read-only token: say so on the run, do not turn it red
+    if (e.status === 403 && process.env.GITHUB_EVENT_NAME?.startsWith('pull_request')) { console.log(`::warning::scrub: ${t.path}: attribution left; this event's token is read-only (${e.message})`); return; }
     throw e;
   }
   console.log(`scrub: ${t.path}: attribution removed`);

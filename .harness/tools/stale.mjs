@@ -1,68 +1,111 @@
 #!/usr/bin/env node
-// stale — the C15 stale-work list (no silent stall). No dependencies.
+// stale — the C15 stale-work list (no silent stall) and its capped alerts. No dependencies.
 //
-//   node .harness/tools/stale.mjs scan --repo owner/name     the stale items now (JSON); reads only
-//   node .harness/tools/stale.mjs report --repo owner/name   in Actions (harness-stale.yml): scan, then
-//                                         bring the one "Stale work" tracking issue up to date
-//                                         (create, edit in place, reopen, or close when the list is
-//                                         empty) and alert through notify.mjs (O10)
+//   node .harness/tools/stale.mjs scan --repo owner/name [--config <file>]
+//                                         the stale items now (JSON); reads only
+//   node .harness/tools/stale.mjs report --repo owner/name [--config <file>]
+//                                         in Actions (harness-stale.yml, or a coordinator's daily
+//                                         backstop run): scan, then bring the one "Stale work" tracking
+//                                         issue up to date (create, edit in place, reopen, or close when
+//                                         the list is empty); with ALERTS_OPS_BOARD, one Ops board row
+//                                         per stale item (below). Never a message to the owner (K038)
 //   node .harness/tools/stale.mjs schedules --repo owner/name [--alert]
 //                                         missed scheduled runs: every scheduled workflow whose next
 //                                         run (by its cron, after its last scheduled or by-hand run) is more than
 //                                         HARNESS_SCHEDULE_OVERDUE_HOURS (36) overdue. GitHub's schedules
-//                                         are best-effort, so none is trusted silently. With --alert, a
-//                                         problem `schedule:<owner/name>/<file>` in the project's topic
-//                                         for each overdue one, and `resolve` once it has run again
-//                                         (on schedule or by hand).
+//                                         are best-effort, so none is trusted silently. With --alert, an
+//                                         Ops board row `schedule:<owner/name>/<file>` (ALERTS_OPS_BOARD)
+//                                         for each overdue one, resolved once it has run again (on
+//                                         schedule or by hand); never a message to the owner (K038).
 //                                         GH_TOKEN needs actions: read and contents: read. Any sender can
 //                                         run it (the hands daily check, a host's tick).
 //
-// Stale means idle (no update) for at least:
-//   HARNESS_STALE_PR_DAYS        2   an open PR, classified draft, conflicted, red, green-unmerged or
-//                                    waiting (checks pending or none); bot PRs count like any other
-//   HARNESS_STALE_CONFLICT_DAYS  1   an open PR that cannot merge because of a conflict
-//   HARNESS_STALE_INBOX_DAYS     1   an open `inbox` request in state queued or working (O14)
-//   HARNESS_STALE_CARD_DAYS      3   an open issue labelled `card` or any `risk:*` label
+// Stale means no commit, comment or state change (GitHub's updated_at) for at least its threshold, in
+// hours (K035: thresholds are data, not code). The defaults:
+//   pr          48   an open PR, classified draft, conflicted, red, green-unmerged or waiting (checks
+//                    pending or none); bot PRs count like any other
+//   conflict    24   an open PR that cannot merge because of a conflict
+//   inbox       24   an open `inbox` request in state queued or working (O14)
+//   card        48   an open issue labelled `card` or any `risk:*` label
+//   initiative  48   an open issue with one of the `initiative_labels` (a board's Now items)
+//   wait        48   an open issue with one of the `wait_labels` (a C22 wait record: a STATE issue, a
+//                    queued wake); counted only while an initiative is open, or when none are configured
+// The data: the object `stale` in .harness/profile.json, or the file --config names (the same object at
+// its top level, for a repository without a profile), then the Actions variables HARNESS_STALE_PR_DAYS,
+// _CONFLICT_DAYS, _INBOX_DAYS, _CARD_DAYS (days; kept from 0.13). The object:
+//   { "hours": { "pr": 48, ... }, "initiative_labels": ["Now"], "wait_labels": ["coordinator-state"],
+//     "watch": ["pr", "card", "inbox", "initiative", "wait"], "alerts_max": 3 }
 //
 // The tracking issue is found by the hidden marker `<!-- harness-stale -->`: one issue per
 // repository, never one per run (RJ02), and only one filed by github-actions[bot] counts, so `report`
-// runs in Actions (harness-stale.yml). Its body also carries, as a hidden marker, the item set the
-// owner was last told about. Alerts follow the one standard (O10, .harness/alerts.md) through
-// notify.mjs, never Telegram directly: when the list holds items not announced before, one problem
-// under the key `stale:<owner/name>` in the project's topic (the Actions variable ALERTS_TOPIC), linking
-// the issue; when the list is empty, `resolve` on that key. notify.mjs deduplicates, caps and
-// escalates; its store is github:<owner/name> (ALERTS_STORE), and without ALERTS_BOT_TOKEN and
-// ALERTS_CHAT_ID a problem is recorded as an issue for the next tick to send. GH_TOKEN reads the
-// repository and writes the issues.
+// runs in Actions. Stale work is the agents' own backlog, never the owner's (owner, roadmap #59, 8 Nov
+// 2026; K038): nothing here reaches Telegram. The tracking issue is the list the coordinator works through
+// (resume each item, or close or park it with a reason). Where ALERTS_OPS_BOARD names the Ops board, each
+// stale item is also an `ops` row there, `stale:<owner/name>#<number>`, turned ✅ when the item moves or
+// closes. A capped Telegram problem an earlier kit opened for an item is closed without a message
+// (notify resolve --quiet). `alerts_max` is still read, for old profiles, and no longer used.
+// notify.mjs's store is github:<owner/name> (ALERTS_STORE). GH_TOKEN reads the repository and writes the issues.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseInbox } from './inbox.mjs';
 import { parseYaml } from './lib.mjs';
-import { TOPICS, problem, resolveKey, store, telegram, localTime } from './notify.mjs';
+import { TOPICS, raise, resolveKey, store, telegram, opsBoard, localTime } from './notify.mjs';
 
 export const MARKER = '<!-- harness-stale -->';
 export const TITLE = 'Stale work';
 export const MAX_LISTED = 10;
-export const DEFAULTS = { prDays: 2, conflictDays: 1, inboxDays: 1, cardDays: 3 };
-const ENV = { prDays: 'HARNESS_STALE_PR_DAYS', conflictDays: 'HARNESS_STALE_CONFLICT_DAYS', inboxDays: 'HARNESS_STALE_INBOX_DAYS', cardDays: 'HARNESS_STALE_CARD_DAYS' };
-const DAY = 86400000;
+/** Thresholds in hours (K035). */
+export const DEFAULTS = Object.freeze({ pr: 48, conflict: 24, inbox: 24, card: 48, initiative: 48, wait: 48 });
+export const WATCH = Object.freeze(['pr', 'card', 'inbox', 'initiative', 'wait']);
+export const ALERTS_MAX = 3;
+const ENV_DAYS = { pr: 'HARNESS_STALE_PR_DAYS', conflict: 'HARNESS_STALE_CONFLICT_DAYS', inbox: 'HARNESS_STALE_INBOX_DAYS', card: 'HARNESS_STALE_CARD_DAYS' };
+const HOUR = 3600000;
+const PR_KINDS = ['draft', 'conflicted', 'red', 'green-unmerged', 'waiting'];
 
-/** Thresholds in days: the defaults, each overridable by its env variable (empty = default). */
-export function thresholds(env = process.env) {
-  const out = { ...DEFAULTS };
-  for (const [k, name] of Object.entries(ENV)) {
+const labelList = (v, name) => {
+  if (v === undefined) return [];
+  if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !x.trim())) throw new Error(`stale: ${name} must be a list of label names`);
+  return v.map((x) => x.trim());
+};
+
+/** The stale settings: defaults, then the data object (profile `stale` or --config), then the legacy
+ *  env variables in days. Anything it cannot read is an error, never a silent default. */
+export function settings(data = {}, env = process.env) {
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) throw new Error('stale: the settings must be an object');
+  const hours = { ...DEFAULTS };
+  for (const [k, v] of Object.entries(data.hours || {})) {
+    if (!(k in DEFAULTS)) throw new Error(`stale: unknown threshold "${k}" (known: ${Object.keys(DEFAULTS).join(', ')})`);
+    if (typeof v !== 'number' || !(v > 0)) throw new Error(`stale: hours.${k} must be a number of hours above 0, not ${JSON.stringify(v)}`);
+    hours[k] = v;
+  }
+  for (const [k, name] of Object.entries(ENV_DAYS)) {
     const v = env[name];
     if (v === undefined || String(v).trim() === '') continue;
     if (!/^\d+(\.\d+)?$/.test(String(v).trim())) throw new Error(`${name} must be a number of days, not "${v}"`);
-    out[k] = Number(v);
+    hours[k] = Number(v) * 24;
   }
-  return out;
+  const watch = data.watch === undefined ? [...WATCH] : labelList(data.watch, 'watch');
+  const unknown = watch.filter((w) => !WATCH.includes(w));
+  if (unknown.length) throw new Error(`stale: unknown watch "${unknown.join(', ')}" (known: ${WATCH.join(', ')})`);
+  const alertsMax = data.alerts_max === undefined ? ALERTS_MAX : data.alerts_max;
+  if (!Number.isInteger(alertsMax) || alertsMax < 1 || alertsMax > 10) throw new Error('stale: alerts_max is a whole number from 1 to 10');
+  return { hours, watch, alertsMax, initiativeLabels: labelList(data.initiative_labels, 'initiative_labels'), waitLabels: labelList(data.wait_labels, 'wait_labels') };
 }
 
+/** The data object: the --config file (the whole file), else the profile's `stale` object, else {}. */
+export function loadData(file, profile = '.harness/profile.json') {
+  if (file) return JSON.parse(readFileSync(file, 'utf8'));
+  try { return JSON.parse(readFileSync(profile, 'utf8'))?.stale || {}; } catch (e) { if (e.code === 'ENOENT') return {}; throw new Error(`stale: ${profile} is not readable JSON (${e.message})`); }
+}
+
+/** Whole hours since an ISO time. */
+export const idleHours = (updatedAt, now = Date.now()) => Math.max(0, Math.floor((now - Date.parse(updatedAt)) / HOUR));
 /** Whole days since an ISO time. */
-export const idleDays = (updatedAt, now = Date.now()) => Math.max(0, Math.floor((now - Date.parse(updatedAt)) / DAY));
+export const idleDays = (updatedAt, now = Date.now()) => Math.floor(idleHours(updatedAt, now) / 24);
+/** Hours as the owner reads them: "52 h", or "3 days 4 h" from two days on. */
+export const idleText = (h) => (h < 48 ? `${h} h` : `${Math.floor(h / 24)} days${h % 24 ? ` ${h % 24} h` : ''}`);
 
 const RED = ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure'];
 
@@ -83,10 +126,13 @@ export function classifyPr(pr, checks) {
   return 'waiting';
 }
 
-/** An open issue's kind for this list, or null: inbox queued/working, card, risk. */
-export function classifyIssue(issue) {
-  if (String(issue.body || '').includes(MARKER)) return null; // the tracking issue itself
+/** An open issue's kind for this list, or null: initiative, wait, inbox queued/working, card, risk. */
+export function classifyIssue(issue, s = settings()) {
+  const body = String(issue.body || '');
+  if (body.includes(MARKER) || body.includes('<!-- harness-alert:')) return null; // the tracking issue, an alert's own issue
   const labels = (issue.labels || []).map((l) => String(typeof l === 'string' ? l : l.name));
+  if (labels.some((l) => s.initiativeLabels.includes(l))) return 'initiative';
+  if (labels.some((l) => s.waitLabels.includes(l))) return 'wait';
   if (labels.includes('inbox')) {
     const state = parseInbox(issue.body)?.State;
     if (state === 'queued' || state === 'working') return `inbox ${state}`;
@@ -96,44 +142,44 @@ export function classifyIssue(issue) {
   return null;
 }
 
-/** The threshold a candidate's kind must reach. */
-export function thresholdFor(kind, t) {
-  if (kind === 'conflicted') return t.conflictDays;
-  if (['draft', 'red', 'green-unmerged', 'waiting'].includes(kind)) return t.prDays;
-  if (kind.startsWith('inbox')) return t.inboxDays;
-  return t.cardDays;
+/** The watch group a kind belongs to: pr, inbox, card, initiative or wait. */
+export const groupOf = (kind) => (PR_KINDS.includes(kind) ? 'pr' : String(kind).startsWith('inbox') ? 'inbox' : kind === 'risk' ? 'card' : kind);
+
+/** The threshold, in hours, a candidate's kind must reach. */
+export function thresholdFor(kind, hours = DEFAULTS) {
+  if (kind === 'conflicted') return hours.conflict;
+  const g = groupOf(kind);
+  return hours[g] ?? hours.card;
 }
 
-/** The stale items among candidates { number, url, title, kind, updatedAt }, longest idle first. */
-export function select(cands, now = Date.now(), t = DEFAULTS) {
+/** The stale items among candidates { number, url, title, kind, updatedAt }, longest idle first. Wait
+ *  records count only while an initiative is open (or when no initiative label is configured). */
+export function select(cands, now = Date.now(), s = settings()) {
   const seen = new Set();
+  const initiativeOpen = !s.initiativeLabels.length || cands.some((c) => c.kind === 'initiative');
   return cands
-    .map((c) => ({ ...c, days: idleDays(c.updatedAt, now) }))
-    .filter((c) => c.kind && c.days >= thresholdFor(c.kind, t) && !seen.has(c.number) && seen.add(c.number))
-    .map(({ number, url, title, kind, days }) => ({ number, url, title, kind, days }))
-    .sort((a, b) => b.days - a.days || a.number - b.number);
+    .filter((c) => c.kind && s.watch.includes(groupOf(c.kind)) && (c.kind !== 'wait' || initiativeOpen))
+    .map((c) => ({ ...c, hours: idleHours(c.updatedAt, now), limit: thresholdFor(c.kind, s.hours) }))
+    .filter((c) => c.hours >= c.limit && !seen.has(c.number) && seen.add(c.number))
+    .map(({ number, url, title, kind, hours, limit }) => ({ number, url, title, kind, hours, limit }))
+    .sort((a, b) => b.hours - a.hours || a.number - b.number);
 }
 
 // --- the tracking issue's body ---------------------------------------------------------------------
 const clean = (s) => String(s || '').replace(/\s+/g, ' ').replace(/[|[\]`<>]/g, (c) => `\\${c}`).replace(/@/g, '@​').trim().slice(0, 120);
 
-/** The body: the list, then the hidden markers (announced item set, last alert date). */
-export function render(items, { announced = [], t = DEFAULTS } = {}) {
-  const lines = [MARKER, 'Open work idle past its threshold (C15, no silent stall), listed once a day by `harness-stale.yml`.',
-    'Resume each item or report it STOPPED. This issue updates in place and closes when the list is empty.', ''];
+/** The body: the list, then the thresholds. */
+export function render(items, { s = settings() } = {}) {
+  const lines = [MARKER, 'Open work with no commit, comment or change past its threshold (C15, no silent stall), listed once a day.',
+    `Resume each item, or close or park it with a one-line reason. Nothing here goes to the owner (K038); with the Ops board each item is also a row there. This issue updates in place and closes when the list is empty.`, ''];
   if (items.length) {
-    lines.push('| Item | Kind | Days idle |', '|---|---|---|');
-    for (const i of items) lines.push(`| [#${i.number}](${i.url}) ${clean(i.title)} | ${i.kind} | ${i.days} |`);
+    lines.push('| Item | Kind | Idle | Threshold |', '|---|---|---|---|');
+    for (const i of items) lines.push(`| [#${i.number}](${i.url}) ${clean(i.title)} | ${i.kind} | ${idleText(i.hours)} | ${i.limit} h |`);
   } else lines.push('Nothing is stale.');
-  lines.push('', `Thresholds in days: PRs ${t.prDays}, conflicted PRs ${t.conflictDays}, inbox queued or working ${t.inboxDays}, \`card\` and \`risk:*\` issues ${t.cardDays}.`, '',
-    `<!-- harness-stale-items: ${signature(announced)} -->`, '');
+  const h = s.hours;
+  lines.push('', `Thresholds in hours: PRs ${h.pr}, conflicted PRs ${h.conflict}, inbox queued or working ${h.inbox}, \`card\` and \`risk:*\` issues ${h.card}`
+    + `${s.initiativeLabels.length ? `, initiatives (${s.initiativeLabels.map((l) => `\`${l}\``).join(', ')}) ${h.initiative}` : ''}${s.waitLabels.length ? `, wait records (${s.waitLabels.map((l) => `\`${l}\``).join(', ')}) ${h.wait}` : ''}. Watching: ${s.watch.join(', ')}.`, '');
   return lines.join('\n');
-}
-
-/** The marker read back from a body: { announced: [numbers] }. */
-export function readMarkers(body) {
-  const items = String(body || '').match(/<!-- harness-stale-items: ([\d,]*) -->/);
-  return { announced: items && items[1] ? items[1].split(',').map(Number) : [] };
 }
 
 /** The signature of an item set: its numbers, sorted, comma-separated. */
@@ -141,18 +187,12 @@ export function signature(list) {
   return [...new Set(list.map((x) => (typeof x === 'number' ? x : x.number)))].sort((a, b) => a - b).join(',');
 }
 
-/** The items not announced before. Deduplication, caps and escalation are notify.mjs's (O10). */
-export const freshItems = (items, announced = []) => { const before = new Set(announced); return items.filter((i) => !before.has(i.number)); };
+/** One stale item's alert key: stable per item, never a time or a count (O10). */
+export const itemKey = (repo, number) => `stale:${repo}#${number}`;
+/** The problem text for one stale item (notify.mjs sends it as one line). */
+export const itemText = (repo, i) => `Stale ${i.kind} in ${repo}: #${i.number} ${String(i.title || '').replace(/\s+/g, ' ').trim().slice(0, 100)} has had no commit, comment or change for ${idleText(i.hours)} (threshold ${i.limit} h). Resume it or record why it waits.`;
 
-/** The problem text (notify.mjs sends it as one line): at most MAX_LISTED items, new ones first. */
-export function message(repo, items, fresh) {
-  const isNew = new Set(fresh.map((i) => i.number));
-  const ordered = [...items.filter((i) => isNew.has(i.number)), ...items.filter((i) => !isNew.has(i.number))];
-  const parts = ordered.slice(0, MAX_LISTED).map((i) => `#${i.number} ${i.kind} ${i.days}d${isNew.has(i.number) ? ' (new)' : ''}`);
-  return `Stale work in ${repo}: ${items.length} item(s), ${fresh.length} new: ${parts.join(', ')}${ordered.length > MAX_LISTED ? `, and ${ordered.length - MAX_LISTED} more` : ''}`;
-}
-
-/** The topic in the profile (`alerts.topic`), or ''. */
+/** The profile's topic (`alerts.topic`), or ''. */
 export function profileTopic(file = '.harness/profile.json') {
   try { return String(JSON.parse(readFileSync(file, 'utf8'))?.alerts?.topic || ''); } catch { return ''; }
 }
@@ -160,7 +200,7 @@ export function profileTopic(file = '.harness/profile.json') {
 /** The project's topic (ALERTS_TOPIC, else the profile's `alerts.topic`): one of notify.mjs's project topics, or null. */
 export function topicOf(v = process.env.ALERTS_TOPIC || profileTopic()) {
   const t = String(v || '').trim();
-  return t && t in TOPICS && !['needs', 'daily'].includes(t) ? t : null;
+  return t && t in TOPICS && !['needs', 'good', 'summary', 'daily'].includes(t) ? t : null;
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
@@ -189,27 +229,29 @@ async function pages(path, max = 30) {
 }
 
 /** Every stale item of the repository now. */
-export async function scan(repo, now = Date.now(), t = thresholds()) {
+export async function scan(repo, now = Date.now(), s = settings(loadData())) {
   const cands = [];
-  const prMin = Math.min(t.prDays, t.conflictDays);
-  for (const p of await pages(`/repos/${repo}/pulls?state=open`)) {
-    if (idleDays(p.updated_at, now) < prMin) continue; // too fresh for any PR threshold: no more calls
-    const full = await api('GET', `/repos/${repo}/pulls/${p.number}`);
-    const sha = full.head.sha;
-    const runs = (await api('GET', `/repos/${repo}/commits/${sha}/check-runs?per_page=100`)).check_runs || [];
-    const combined = await api('GET', `/repos/${repo}/commits/${sha}/status`);
-    cands.push({ number: p.number, url: p.html_url, title: p.title, kind: classifyPr(full, checkState(runs, combined)), updatedAt: p.updated_at });
+  if (s.watch.includes('pr')) {
+    const prMin = Math.min(s.hours.pr, s.hours.conflict);
+    for (const p of await pages(`/repos/${repo}/pulls?state=open`)) {
+      if (idleHours(p.updated_at, now) < prMin) continue; // too fresh for any PR threshold: no more calls
+      const full = await api('GET', `/repos/${repo}/pulls/${p.number}`);
+      const sha = full.head.sha;
+      const runs = (await api('GET', `/repos/${repo}/commits/${sha}/check-runs?per_page=100`)).check_runs || [];
+      const combined = await api('GET', `/repos/${repo}/commits/${sha}/status`);
+      cands.push({ number: p.number, url: p.html_url, title: p.title, kind: classifyPr(full, checkState(runs, combined)), updatedAt: p.updated_at });
+    }
   }
   for (const i of await pages(`/repos/${repo}/issues?state=open`)) {
     if (i.pull_request) continue;
-    cands.push({ number: i.number, url: i.html_url, title: i.title, kind: classifyIssue(i), updatedAt: i.updated_at });
+    cands.push({ number: i.number, url: i.html_url, title: i.title, kind: classifyIssue(i, s), updatedAt: i.updated_at });
   }
-  return select(cands, now, t);
+  return select(cands, now, s);
 }
 
 export const AUTHOR = 'github-actions[bot]';
 /** Whether an issue is the tracking issue: the marker, filed by Actions' own token. Anyone can type the
- * marker, so an issue by anyone else never counts (it could otherwise claim every item was announced). */
+ * marker, so an issue by anyone else never counts. */
 export const isTracking = (i) => !i.pull_request && String(i.body || '').includes(MARKER) && i.user?.login === AUTHOR && i.user?.type === 'Bot';
 
 /** The tracking issue (open first, then the most recently updated closed one), or null. */
@@ -225,41 +267,47 @@ async function findTracking(repo) {
   return null;
 }
 
-/** scan, then update the one tracking issue and alert through notify.mjs. */
-export async function report(repo, now = Date.now()) {
-  const t = thresholds();
-  const items = await scan(repo, now, t);
+/** Close, without any message, the Telegram problems an earlier kit opened under these keys (K038). */
+async function quietClose(st, tg, keep, alerts, errors) {
+  for (const inc of (await st.list()).filter((i) => i.open && !i.kind && keep(i.key))) {
+    try { alerts[inc.key] = (await resolveKey(st, tg, { key: inc.key, text: 'stale work is the agents\' backlog, not the owner\'s (K038)', quiet: true })).status; }
+    catch (e) { errors.push(e); alerts[inc.key] = 'failed'; }
+  }
+}
+
+/** scan, then update the one tracking issue; with the Ops board, one `ops` row per stale item and ✅ for
+ *  each that moved. Never a message to the owner (K038). A board call that fails is logged and left for the
+ *  next run (notify.mjs boardSync); GH_TOKEN must be able to write the board's repository. */
+export async function report(repo, now = Date.now(), s = settings(loadData())) {
+  const items = await scan(repo, now, s);
   const issue = await findTracking(repo);
-  const prev = readMarkers(issue?.body);
-  const fresh = freshItems(items, prev.announced);
-  const key = `stale:${repo}`;
-  const alerts = () => store(process.env.ALERTS_STORE || `github:${repo}`);
-  const topic = topicOf();
-  // with no topic set nothing is announced yet, so the first run that has one alerts for the list
-  const announced = fresh.length && !topic ? prev.announced.filter((n) => items.some((i) => i.number === n)) : items.map((i) => i.number);
-  const body = render(items, { announced, t });
+  const body = render(items, { s });
+  let target = issue;
   if (!items.length) {
     if (issue && issue.state === 'open') { await api('PATCH', `/repos/${repo}/issues/${issue.number}`, { body, state: 'closed', state_reason: 'completed' }); console.log(`stale: nothing stale; closed #${issue.number}`); }
     else console.log('stale: nothing stale');
-    const r = await resolveKey(alerts(), telegram(), { key, text: `nothing stale in ${repo}` });
-    if (r.status !== 'none') console.log(`stale: alert ${key} ${r.status}`);
-    return { items, issue: issue?.number ?? null, alert: r.status };
+  } else {
+    if (!issue) target = await api('POST', `/repos/${repo}/issues`, { title: TITLE, body });
+    else if (issue.state !== 'open' || issue.body !== body) target = await api('PATCH', `/repos/${repo}/issues/${issue.number}`, { body, ...(issue.state !== 'open' ? { state: 'open' } : {}) });
+    console.log(`stale: ${items.length} item(s) listed in ${target.html_url}`);
   }
-  let target = issue;
-  if (!issue) target = await api('POST', `/repos/${repo}/issues`, { title: TITLE, body });
-  else if (issue.state !== 'open' || issue.body !== body) target = await api('PATCH', `/repos/${repo}/issues/${issue.number}`, { body, ...(issue.state !== 'open' ? { state: 'open' } : {}) });
-  console.log(`stale: ${items.length} item(s) listed in ${target.html_url} (${fresh.length} new)`);
-  if (!fresh.length) return { items, issue: target.number, alert: 'nothing new' };
-  if (!topic) { console.log('stale: no alert: set alerts.topic in .harness/profile.json (or the Actions variable ALERTS_TOPIC) to this project\'s topic (.harness/alerts.md)'); return { items, issue: target.number, alert: 'no topic' }; }
-  try {
-    const r = await problem(alerts(), telegram(), { key, topic, title: `Stale work in ${repo}`, text: message(repo, items, fresh), link: target.html_url });
-    console.log(`stale: alert ${key} ${r.status}`);
-    return { items, issue: target.number, alert: r.status };
-  } catch (e) {
-    // not delivered: keep the new items unannounced, so the next run asks notify.mjs again
-    await api('PATCH', `/repos/${repo}/issues/${target.number}`, { body: render(items, { announced: prev.announced.filter((n) => items.some((i) => i.number === n)), t }) });
-    throw e;
+  const st = store(process.env.ALERTS_STORE || `github:${repo}`), tg = telegram(), board = opsBoard();
+  const alerts = {}, errors = [];
+  await quietClose(st, tg, (k) => k === `stale:${repo}` || k.startsWith(`stale:${repo}#`), alerts, errors);
+  const stale = new Set(items.map((i) => itemKey(repo, i.number)));
+  for (const inc of (await st.list()).filter((i) => i.open && i.kind === 'ops' && i.key.startsWith(`stale:${repo}#`) && !stale.has(i.key))) {
+    try { alerts[inc.key] = (await resolveKey(st, tg, { key: inc.key, text: `#${inc.key.split('#').pop()} moved again or closed` }, board)).status; }
+    catch (e) { errors.push(e); alerts[inc.key] = 'failed'; }
   }
+  if (board) for (const i of items) {
+    const key = itemKey(repo, i.number);
+    try { alerts[key] = (await raise(st, tg, { kind: 'ops', key, system: repo, who: 'Platform', text: itemText(repo, i), link: i.url }, board)).status; }
+    catch (e) { errors.push(e); alerts[key] = 'failed'; }
+  }
+  else if (items.length) console.log('stale: the list is the tracking issue (no ALERTS_OPS_BOARD, so no board rows); nothing goes to the owner');
+  for (const [k, v] of Object.entries(alerts)) console.log(`stale: alert ${k} ${v}`);
+  if (errors.length) throw errors[0];
+  return { items, issue: target?.number ?? null, alerts, alert: Object.values(alerts).join(',') || 'none' };
 }
 
 // --- missed scheduled runs ----------------------------------------------------------------------------
@@ -368,18 +416,21 @@ export function missedText(repo, s, limit = 36) {
   return `Scheduled run missed: ${s.workflow} in ${repo} was due ${localTime(s.due)} and is ${s.lateHours} h overdue (more than ${limit} h); last run ${s.lastRun ? localTime(s.lastRun) : 'never'}. ${why}.`;
 }
 
-/** schedules, then a problem per overdue workflow and a resolve for each that ran again. */
-export async function alertSchedules(repo, now = Date.now(), topic = topicOf()) {
-  if (!topic) throw new Error('no topic: set ALERTS_TOPIC (or alerts.topic in .harness/profile.json) to the topic for missed runs');
+/** schedules, then an Ops board row per overdue workflow and ✅ for each that ran again; never a message
+ *  to the owner (K038). Without ALERTS_OPS_BOARD it only lists them. */
+export async function alertSchedules(repo, now = Date.now(), board = opsBoard()) {
   const limit = overdueHours();
   const list = await schedules(repo, now, limit);
   const st = store(process.env.ALERTS_STORE || `github:${repo}`), tg = telegram();
+  const old = {}, errors = [];
+  await quietClose(st, tg, (k) => k.startsWith(`schedule:${repo}/`), old, errors);
+  if (errors.length) throw errors[0];
   const done = [];
   for (const s of list) {
     const key = `schedule:${repo}/${s.file}`;
-    const r = s.overdue
-      ? await problem(st, tg, { key, topic, title: `Scheduled run missed: ${s.workflow}`, text: missedText(repo, s, limit), link: s.url })
-      : await resolveKey(st, tg, { key, text: `${s.workflow} in ${repo} ran again (${s.lastRun ? localTime(s.lastRun) : 'its next run is not due yet'})` });
+    const r = !board ? { status: s.overdue ? 'listed only (no ALERTS_OPS_BOARD)' : 'ok' } : s.overdue
+      ? await raise(st, tg, { kind: 'ops', key, system: repo, who: 'Platform', text: missedText(repo, s, limit), link: s.url }, board)
+      : await resolveKey(st, tg, { key, text: `${s.workflow} in ${repo} ran again (${s.lastRun ? localTime(s.lastRun) : 'its next run is not due yet'})` }, board);
     done.push({ ...s, alert: r.status });
   }
   return done;
@@ -393,15 +444,16 @@ async function main() {
   const [cmd] = argv;
   const repo = opt('--repo');
   if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('--repo owner/name is required');
-  if (cmd === 'scan') { console.log(JSON.stringify(await scan(repo), null, 2)); return; }
-  if (cmd === 'report') { await report(repo); return; }
+  const s = () => settings(loadData(opt('--config')));
+  if (cmd === 'scan') { console.log(JSON.stringify(await scan(repo, Date.now(), s()), null, 2)); return; }
+  if (cmd === 'report') { await report(repo, Date.now(), s()); return; }
   if (cmd === 'schedules') {
     const list = argv.includes('--alert') ? await alertSchedules(repo) : await schedules(repo);
     for (const s of list) console.log(`schedules: ${s.overdue ? 'MISSED' : 'ok'} ${s.file} (${s.crons.join(' | ')}) last ${s.lastRun || 'never'}, due ${s.due}${s.overdue ? `, ${s.lateHours} h overdue` : ''}${s.alert ? `; alert ${s.alert}` : ''}`);
     if (!list.length) console.log(`schedules: no scheduled workflow in ${repo}`);
     return;
   }
-  throw new Error('usage: stale.mjs scan|report|schedules --repo owner/name  (see the header of this file)');
+  throw new Error('usage: stale.mjs scan|report [--config <file>]|schedules --repo owner/name  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

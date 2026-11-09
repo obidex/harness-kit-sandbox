@@ -110,6 +110,7 @@ repositories and K repositories that pin the kit:
 | `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 (a fork's PR always hosted) |
 | `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request; 0 with a self-hosted `RUNNER` |
 | `harness-scrub` | each project | every issue, PR, comment and review posted or edited | 1 | ~1 per event: the largest cost on a busy private repo (~700+ events a month on one measured project); 0 with a self-hosted `RUNNER` |
+| `harness-guard` | each project | PR opened, pushed, reopened or edited (a title or body edit re-runs it) | 1 | ~1 per PR push or edit (about 20 s); 0 with a self-hosted `RUNNER` |
 | `harness-stale` | each project | daily; dispatch | 1 | ~30 (one short job a day); 0 with a self-hosted `RUNNER` |
 
 Before 0.6.0, `hands-settings` ran hourly with one job per enrolled repository:

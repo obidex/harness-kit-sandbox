@@ -1,0 +1,82 @@
+# Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
+# The supply-chain floor's PR check (K030, A20 and A21), meant to be a required check:
+#   1. gitleaks scans the pull request's own commits for secrets (a pinned release, checksummed);
+#   2. a change to agent configuration (CLAUDE.md, AGENTS.md, .claude/**, .harness/**, .mcp.json,
+#      plugin code, git hooks) passes only when every author is in the profile's trusted_actors.
+# The guard's code, its gitleaks config and the trusted list come from the base branch; the PR's commits
+# are only read, never run. This workflow file itself runs from the PR (pull_request), so a change under
+# .github/ is judged like agent configuration, and a session never merges an untrusted PR that touches
+# .github/workflows/ (A21).
+name: harness-guard
+
+on:
+  pull_request:
+    # edited: a PR whose base branch was changed is judged again against the new base
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness-guard:
+    name: harness-guard
+    # nothing of the PR runs here, but a fork's PR (or one whose fork was deleted) still stays on ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.RUNNER || 'ubuntu-latest') || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: The guard and its settings, from the base branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+          sparse-checkout: |
+            .harness
+            .gitleaks.toml
+          sparse-checkout-cone-mode: false
+      - name: The pull request's commits (read only)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+      - name: No secret in the pull request's commits (gitleaks)
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          v=8.30.1
+          sum=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${v}/gitleaks_${v}_linux_x64.tar.gz"
+          echo "${sum}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+          # the base branch's config, or gitleaks' defaults; never a .gitleaks.toml the PR brings
+          cfg="$RUNNER_TEMP/gitleaks.toml"
+          if [ -f base/.gitleaks.toml ]; then cp base/.gitleaks.toml "$cfg"; else printf '[extend]\nuseDefault = true\n' > "$cfg"; fi
+          "$RUNNER_TEMP/gitleaks" git pr --config "$cfg" --log-opts="${BASE}..${HEAD}" --redact --no-banner --exit-code 1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Agent configuration changes come from trusted accounts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ ! -f base/.harness/tools/guard.mjs ]; then
+            echo "::warning::guard.mjs arrives with this pull request; the trusted-author check runs from the next one"
+            echo "- The trusted-author check is not on the base branch yet (it arrives with this PR)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node base/.harness/tools/guard.mjs agent-config --repo "$REPO" --pr "$PR" --profile base/.harness/profile.json
