@@ -92,14 +92,14 @@ only the default branch's `.harness/tools`, never PR code, with `persist-credent
 `harness-audit`, which runs a PR's own code, takes the self-hosted lane only for a PR from the same
 repository (a fork's PR, or one whose fork was deleted, runs on `ubuntu-latest`). On a public
 repository anyone can queue `harness-scrub` jobs on a self-hosted runner by posting comments, so a
-public project may prefer to leave `RUNNER` unset for it; hosted minutes are free there. The control
+public project never sets `RUNNER` (A19; the audit fails it); hosted minutes are free there. The control
 repository's `hands-*` jobs stay on GitHub-hosted runners (the App key never moves to a general
 worker, K008). Estimates per month without a self-hosted `RUNNER`, with N enrolled settings
 repositories and K repositories that pin the kit:
 
 | Workflow | Where | Trigger | Jobs per run | Estimate |
 |---|---|---|---|---|
-| `hands-settings` | control repo | daily drift check (which also ticks the alerts, posts the digest and alerts on any scheduled workflow here more than 36 h overdue); dispatch after a settings merge | 1, plus 2 when something drifts | ~30, plus ~3 per settings change |
+| `hands-settings` | control repo | daily drift check (which also ticks the alerts and records on the Ops board any scheduled workflow here more than 36 h overdue); dispatch after a settings merge | 1, plus 2 when something drifts | ~30, plus ~3 per settings change |
 | `hands-update` | control repo | weekly; dispatch | 2 + K | ~4.3 × (2 + K) |
 | `hands-keep` | control repo | hourly, only while a kit update PR is open; dispatch | 1, plus 1 when it updates, fails or turns off | ~2-4 per kit update; at most ~75 for a PR left open 3 days |
 | `hands-report` | control repo | called by the three above | (counted above) | 0 extra |

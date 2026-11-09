@@ -15,7 +15,7 @@
 //   node .harness/tools/notify.mjs tick [--stores <spec,…>]
 //                                               escalate, remind STILL OPEN once a day, send queued problems
 //   node .harness/tools/notify.mjs digest [--stores <spec,…>]
-//                                               post the one daily digest in "Daily"
+//                                               retired (K039): posts nothing
 //   node .harness/tools/notify.mjs send --topic <t> --text <t>     one plain message (silent unless "needs")
 //
 // Kinds (K037, S-034): what a sender reports, so the channel can change without touching senders.
@@ -39,7 +39,7 @@
 //   "You: nothing", an issue number outside a quoted paste, an alert count or a threshold (rule C), any
 //   message not in the owner's format (K038: `🛑 what` / `Who:` / `Do:` / `Where:` / `When:`, five lines
 //   at most), and no message carries a button.
-//   node .harness/tools/notify.mjs test         a PROBLEM in "Kit & Hands" and its RESOLVED reply (a proof)
+//   node .harness/tools/notify.mjs test         one silent message in "Summary", edited to ✅ (a proof)
 //   node .harness/tools/notify.mjs find         the bot's name and the groups it was added to, with their ids
 //
 // The rules (.harness/alerts.md; `problem` is the older form, kept until every sender uses a kind):
@@ -57,7 +57,7 @@
 // - Capped problems (--max-sends N, 1-10; K035): at most N messages in all, at most one a day (the
 //   owner's calendar day, and 20 h since the last). The PROBLEM is the first; while it stays open, the
 //   sender's own repeat call on a later day sends one STILL OPEN reply, until N (none once acknowledged or muted). Never escalated, never reminded by `tick`; past
-//   N it is only a line in the daily digest until its RESOLVED. For a sender that checks the same thing
+//   N nothing more is sent until its RESOLVED (the digest is retired, K039). For a sender that checks the same thing
 //   every day (stale work, stale data), so one stuck item cannot alert forever.
 // - Format: a PROBLEM ends with one "You:" line (--you: "nothing", "<who> is fixing it" or "Needs you:
 //   <exact step>"); a RESOLVED is the short reply "✅ Fixed after N min". Messages carry no commands,

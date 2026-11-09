@@ -18,7 +18,8 @@ on that issue, and the sender reads the result there. Setup and cost: `.harness/
 3. Run `inbox.mjs send --repo <owner/name> --id <id> --title <t> --outcome <what done looks like>
    --source <link to where it was asked> --coordinator <that project's coordinator> --covered-by <cover>`.
    Sending again with the same ID files nothing and prints the existing issue.
-   `send` then starts the Actions job that wakes that project's coordinator on its wake channel and
+   `send` then starts the Actions job that wakes that project's coordinator (by the `wake` label where its runs are
+   event-fired, K036; else on its wake channel) and
    waits for its answer; never post the wake comment yourself (K024). `NOT delivered` (exit 3) means
    the request is filed but nobody was woken: it stays queued, a resend tries again (`--again` for
    one already woken), and you record it for your next scheduled check. A 401 or 403 in a cloud
@@ -27,9 +28,11 @@ on that issue, and the sender reads the result there. Setup and cost: `.harness/
 
 ## Picking up requests (the receiving coordinator)
 
-**First step of every coordinator session:** subscribe to this repository's wake channel (the open
+**First step of every coordinator session**, only where this repository still keeps a wake channel
+(no event-fired runs, K033/K036): subscribe to it (the open
 `inbox-wake` pull request, or the repository's existing `wake-channel` one; `inbox.mjs channel --repo <this repo>` names it, `--open` opens it once).
-A comment on it is an inbox wake, except an explain request.
+A comment on it is an inbox wake, except an explain request. An event-fired coordinator is started by the
+`wake` label and subscribes to nothing (`.harness/inbox.md`, "Pickup by label").
 
 **An explain request** (K028) is a wake comment by the hands App whose first line opens
 `<!-- explain-request`. It is not an inbox wake, so `pending` is not run for it. If the comment still

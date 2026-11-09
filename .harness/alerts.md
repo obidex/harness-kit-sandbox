@@ -89,11 +89,11 @@ unpins its problem.
 | Topic | Key | Sound | What goes there |
 |---|---|---|---|
 | Needs you | `needs` | loud | only what needs the owner: an action-required event, a production outage, a problem escalated after 3 hours |
-| ERP | `erp` | silent | the ERP's problems |
-| Website | `website` | silent | the website's problems |
-| Kit & Hands | `kit` | silent | the kit's and the hands workflows' problems |
-| Laptop & VPS | `ops` | silent | the machines: the VPS, the home server, the laptop |
-| Daily | `daily` | silent | one digest a day, 08:17 Damascus |
+| Good news | `good` | silent | a launch people can use (K037) |
+| Summary | `summary` | silent | the evening summary, and the `test` proof |
+
+The `erp`, `website`, `kit`, `ops` and `daily` topics are retired (K039, `notify.mjs retire`, once a
+product's senders have moved to kinds); technical alerts go to the Ops board (O10).
 
 A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit release), then dispatch
 `setup` again; existing topics are kept.
@@ -127,8 +127,8 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
 7. **Capped problems** (`--max-sends N`, K035). A sender that checks the same thing every day (stale
    work, stale data) opens its problem capped: the PROBLEM, then at most one STILL OPEN reply a day
    (the owner's day) from the sender's own repeat while it stays open, N messages in all (the kit's
-   senders use 3). Never escalated, never reminded by `tick`; past N it is only a line in the digest,
-   marked "alerted N of N", until its RESOLVED. Not for an outage or "Needs you".
+   senders use 3). Never escalated, never reminded by `tick`; past N nothing more is sent until its
+   RESOLVED (the digest that once listed it is retired, K039). Not for an outage or "Needs you".
 8. **Stale is never OK.** A check that reads an outside source (a job's last run, a report page, an
    API answer) and finds it older than its threshold says STALE, never OK, and opens a capped problem;
    a check that could not read the source at all says so, never "none found" (K035).
@@ -169,11 +169,11 @@ project can adopt the standard before its secrets exist, at the cost of the tick
 "Stale work" issue, and with the Actions variable `ALERTS_OPS_BOARD` each item is also an Ops board row.
 The profile's `alerts.topic` is still read by senders that use the older `problem` form.
 
-**A host** (the VPS, the home server, the laptop): Node 18 or newer, the tool from a release tag, and a state file.
+**A host** (the VPS, the home server, the laptop): Node 18 or newer, the tool from a release tag (pin the tag in the project's `.harness/VERSION` and move it with each kit update), and a state file.
 
 ```sh
 sudo install -d -m 700 /var/lib/harness-alerts /usr/local/lib/harness
-sudo curl -fsSLo /usr/local/lib/harness/notify.mjs https://raw.githubusercontent.com/obidex/harness-kit/v0.8.0/.harness/tools/notify.mjs
+sudo curl -fsSLo /usr/local/lib/harness/notify.mjs https://raw.githubusercontent.com/obidex/harness-kit/v0.37.1/.harness/tools/notify.mjs
 # /etc/harness-alerts.env, mode 600: ALERTS_BOT_TOKEN=…  ALERTS_CHAT_ID=…  ALERTS_STORE=file:/var/lib/harness-alerts/state.json
 notify() { ( set -a; . /etc/harness-alerts.env; node /usr/local/lib/harness/notify.mjs "$@" ); }
 notify problem --key vps/disk --topic ops --text "VPS disk 93% full" --you nothing   # each failing check
@@ -190,8 +190,7 @@ that changes, or deduplication cannot work.
 Escalation, STILL OPEN replies and held messages need a periodic `tick` over each store.
 
 - **Hosts** tick their own file store from cron, every 10 minutes: free.
-- **The control repository** ticks its own issues once a day in the drift check (no extra job), and
-  posts the digest there.
+- **The control repository** ticks its own issues once a day in the drift check (no extra job).
 - **`hands-alerts`** ticks every enrolled repository hourly, 08:00-22:00 Damascus, only when the
   Actions variable `ALERTS_TICK` is `on`: about 450 GitHub-hosted minutes a month (O13).
 - **Or a host ticks GitHub too**, for free: `tick --stores file:<its state>,github:owner/a,github:owner/b` with a
@@ -210,8 +209,8 @@ after 3 hours.
    secret, and it wins over the older `TELEGRAM_CHAT_ID`. Until then alerts still reach that older
    chat, unthreaded, each led by its topic's name.
 3. Dispatch `hands-alerts` with mode `setup`: it refuses a group without Topics or a bot without the
-   rights, else creates the topics and pins the config. Then mode `test`: one PROBLEM and its RESOLVED
-   reply in "Kit & Hands".
+   rights, else creates the topics and pins the config. Then mode `test`: one silent message in "Summary",
+   edited to ✅.
 4. Each host and project gets the token and chat id as above.
 
 ## Cost (O13)
@@ -219,7 +218,7 @@ after 3 hours.
 | What | Where | Minutes a month |
 |---|---|---|
 | `hands-report` alerting | control repo, inside the report job that already runs | 0 extra |
-| resolve, tick and digest in the drift check | control repo, two steps in the daily job | 0 extra jobs |
+| resolve and tick in the drift check | control repo, two steps in the daily job | 0 extra jobs |
 | `hands-alerts` dispatches | control repo | ~1 per dispatch |
 | `hands-alerts` hourly tick | control repo, only with `ALERTS_TICK=on` | ~450 |
 | a project's problem and resolve steps | inside the project's own jobs | 0 extra jobs |
