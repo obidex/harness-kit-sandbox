@@ -26,21 +26,23 @@
 
 ## Settings line
 
-- One repository: `Settings load from {{REPOS}}'s .claude/settings.json while a thread has this one repository (A15); these approvals hold as well, and a thread never attaches a second repository.`
-- Several: `This project has several repositories, so no repository's settings load in its threads (A15); these approvals stand in for them.`
+- One repository: `A cloud thread does not load {{REPOS}}'s .claude/settings.json, even with this one repository (A15); these approvals stand in for it, and a thread never attaches a second repository.`
+- Several: `This project has several repositories, and a cloud thread loads no repository's settings (A15); these approvals stand in for them.`
 
 ## The block
 
 <!-- standing-approvals:begin -->
 ```
-STANDING APPROVALS (kit text 0.20.0; owner, {{DATE}}; standing, for every {{PROJECT}} thread working an approved card)
+STANDING APPROVALS (kit text 0.39.0; owner, {{DATE}}; standing, for every {{PROJECT}} thread working an approved card)
 {{SETTINGS_LINE}} The owner approves in advance:
 - Identity: before the first commit, run `git config user.name {{OWNER_NAME}}` and `git config user.email {{OWNER_EMAIL}}` in each clone; commits and squash bodies carry no Claude attribution (O09). Never re-author a commit.
-- Edits: change the files the card names in {{REPOS}}, including agent rule files (AGENTS.md, CLAUDE.md, .claude/rules, .claude/skills, the decisions log) and the project's shared agent memory, when the card is an owner-approved change to them. Kit-managed files change only through kit updates.
+- Edits: change the files the card names in {{REPOS}}, including agent rule files (AGENTS.md, CLAUDE.md, .claude/rules, .claude/skills, the decisions log) and the project's shared agent memory, when the card is an owner-approved change to them, using the file-edit tools (A16). Kit-managed files change only through kit updates.
 - Checks: run the repository's own checks and tests on the session's branch (its test and check scripts, linters and the kit's self-checks, as its CI runs them) before pushing; this is the real check C07 requires.
 - Push: push the session's own claude/* branch (never the default branch, never a force push), open its PR, and bring the PR branch up to date on the server (A10); once, open the project's inbox-wake channel branch (O14).
 - Merge: merge its own PR on green required checks plus the review its risk tier requires (C10, C12, O11). Never around a gate.
 - Talk: comment on issues and PRs in {{REPOS}}; file and wake inbox issues in {{INBOX_REPOS}} (O14), through the coordinator when a thread holds one repository (A15).
-Not covered (still the owner's): {{RESERVED}}; secrets, .claude/settings.json, root steps on machines, deleting data. A refused command is reported, never retried or reworded (C14).
+- Refusals: a safety-check refusal is never retried, reworded or moved to another thread, session or tool (C14). Record the exact command and denial where the project keeps refusals; fix a real configuration gap only where the fix is not itself the refused action.
+- Permission settings and secrets are never changed by the agents they govern.
+Not covered (still the owner's): {{RESERVED}}; secrets, .claude/settings.json, root steps on machines, deleting data without a verified backup.
 ```
 <!-- standing-approvals:end -->

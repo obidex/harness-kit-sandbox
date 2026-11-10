@@ -54,6 +54,8 @@ structural JSON (`--json`), the profile, read access to the repository and its i
    for success; three failures in a row stopped the job.
 6. **State reflects real progress (C17).** The state file's "current" claims match the repository: the
    PRs it names as merged are merged, its open items are open, its next step is not already done.
+   Where the project has a STATE issue (`wake.md` §5-6), the volatile claims live there and the state
+   file carries none: a count, date, SHA or kit version in the state file is FAIL.
 7. **Conflicting rules are flagged, not resolved.** Where the project's rulebook and the kit disagree,
    or two kit rules pull apart in practice, record a `CONFLICT` line naming both sides and the kit's
    `project-specific.md` X-ID if one exists. The owner decides; the review does not.

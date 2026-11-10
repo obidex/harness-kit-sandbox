@@ -8,7 +8,9 @@
 //                                         backstop run): scan, then bring the one "Stale work" tracking
 //                                         issue up to date (create, edit in place, reopen, or close when
 //                                         the list is empty); with ALERTS_OPS_BOARD, one Ops board row
-//                                         per stale item (below). Never a message to the owner (K038)
+//                                         per stale item (below), and one row `state:<owner/name>` when
+//                                         the coordinator's STATE issue is out of date (below). Never a
+//                                         message to the owner (K038)
 //   node .harness/tools/stale.mjs schedules --repo owner/name [--alert]
 //                                         missed scheduled runs: every scheduled workflow whose next
 //                                         run (by its cron, after its last scheduled or by-hand run) is more than
@@ -30,6 +32,12 @@
 //   initiative  48   an open issue with one of the `initiative_labels` (a board's Now items)
 //   wait        48   an open issue with one of the `wait_labels` (a C22 wait record: a STATE issue, a
 //                    queued wake); counted only while an initiative is open, or when none are configured
+//   state       48   the open issue labelled `coordinator-state` (wake.md: the coordinator's volatile
+//                    state, C17) when it was last written at least this long ago AND a pull request
+//                    merged in the repository since: work moved and the state did not follow (K042).
+//                    Not a list item: one Ops board row `state:<owner/name>`, ✅ once the issue is
+//                    rewritten. A repository with no such issue, or with no merge since, has no row;
+//                    an issue already listed as a stale wait record keeps that one row
 // The data: the object `stale` in .harness/profile.json, or the file --config names (the same object at
 // its top level, for a repository without a profile), then the Actions variables HARNESS_STALE_PR_DAYS,
 // _CONFLICT_DAYS, _INBOX_DAYS, _CARD_DAYS (days; kept from 0.13). The object:
@@ -57,7 +65,9 @@ export const MARKER = '<!-- harness-stale -->';
 export const TITLE = 'Stale work';
 export const MAX_LISTED = 10;
 /** Thresholds in hours (K035). */
-export const DEFAULTS = Object.freeze({ pr: 48, conflict: 24, inbox: 24, card: 48, initiative: 48, wait: 48 });
+export const DEFAULTS = Object.freeze({ pr: 48, conflict: 24, inbox: 24, card: 48, initiative: 48, wait: 48, state: 48 });
+/** The label of the coordinator's STATE issue (wake.md). */
+export const STATE_LABEL = 'coordinator-state';
 export const WATCH = Object.freeze(['pr', 'card', 'inbox', 'initiative', 'wait']);
 export const ALERTS_MAX = 3;
 const ENV_DAYS = { pr: 'HARNESS_STALE_PR_DAYS', conflict: 'HARNESS_STALE_CONFLICT_DAYS', inbox: 'HARNESS_STALE_INBOX_DAYS', card: 'HARNESS_STALE_CARD_DAYS' };
@@ -203,6 +213,19 @@ export function topicOf(v = process.env.ALERTS_TOPIC || profileTopic()) {
   return t && t in TOPICS && !['needs', 'good', 'summary', 'daily'].includes(t) ? t : null;
 }
 
+// --- the STATE issue's freshness (K042) -----------------------------------------------------------
+/** One alert key per repository for its STATE issue. */
+export const stateKey = (repo) => `state:${repo}`;
+/** Whether a STATE issue is out of date: last written at least `limit` hours ago while pull requests
+ *  merged since (`merges` are their merged_at times). Idle with no merge since is not stale: nothing moved. */
+export function stateFreshness({ updatedAt, merges = [], now = Date.now(), limit = DEFAULTS.state }) {
+  const hours = idleHours(updatedAt, now);
+  const since = merges.filter((m) => m && Date.parse(m) > Date.parse(updatedAt)).length;
+  return { hours, merges: since, stale: hours >= limit && since > 0 };
+}
+/** The problem text for an out-of-date STATE issue. */
+export const stateText = (repo, f) => `State out of date in ${repo}: #${f.number} was last written ${idleText(f.hours)} ago and ${f.merges} pull request${f.merges === 1 ? '' : 's'} merged since (threshold ${f.limit} h). A coordinator run rewrites it as its last step.`;
+
 // --- GitHub ---------------------------------------------------------------------------------------
 async function api(method, path, data) {
   const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
@@ -247,6 +270,20 @@ export async function scan(repo, now = Date.now(), s = settings(loadData())) {
     cands.push({ number: i.number, url: i.html_url, title: i.title, kind: classifyIssue(i, s), updatedAt: i.updated_at });
   }
   return select(cands, now, s);
+}
+
+/** The repository's STATE issue (open, labelled `coordinator-state`; the most recently written when
+ *  several) with its freshness, or null when it has none. Pull requests are read only once the issue
+ *  is old enough to matter. */
+export async function stateIssue(repo, now = Date.now(), s = settings(loadData())) {
+  const open = (await pages(`/repos/${repo}/issues?state=open&labels=${encodeURIComponent(STATE_LABEL)}`))
+    .filter((i) => !i.pull_request && (i.labels || []).some((l) => (typeof l === 'string' ? l : l.name) === STATE_LABEL))
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+  if (!open.length) return null;
+  const i = open[0], limit = s.hours.state;
+  const merges = idleHours(i.updated_at, now) < limit ? []
+    : (await api('GET', `/repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1`)).map((p) => p.merged_at);
+  return { number: i.number, url: i.html_url, limit, ...stateFreshness({ updatedAt: i.updated_at, merges, now, limit }) };
 }
 
 export const AUTHOR = 'github-actions[bot]';
@@ -305,9 +342,22 @@ export async function report(repo, now = Date.now(), s = settings(loadData())) {
     catch (e) { errors.push(e); alerts[key] = 'failed'; }
   }
   else if (items.length) console.log('stale: the list is the tracking issue (no ALERTS_OPS_BOARD, so no board rows); nothing goes to the owner');
+  // the STATE issue's freshness: one row per repository, ✅ once the issue is rewritten (or gone)
+  let state = null;
+  try {
+    state = await stateIssue(repo, now, s);
+    const key = stateKey(repo);
+    // already listed as a stale wait record (its own row, stale:<repo>#<n>): never two rows for one issue
+    const listed = state && items.some((i) => i.number === state.number);
+    if (listed) state.listed = true;
+    const due = !!state?.stale && !listed;
+    if (due && board) alerts[key] = (await raise(st, tg, { kind: 'ops', key, system: repo, who: 'Platform', text: stateText(repo, state), link: state.url }, board)).status;
+    else if (due) console.log(`stale: ${stateText(repo, state)} (no ALERTS_OPS_BOARD, so no board row)`);
+    else if ((await st.list()).some((i) => i.open && i.kind === 'ops' && i.key === key)) alerts[key] = (await resolveKey(st, tg, { key, text: !state ? 'the state issue is closed' : listed ? `#${state.number} is listed as stale work` : `#${state.number} was rewritten` }, board)).status;
+  } catch (e) { errors.push(e); alerts[stateKey(repo)] = 'failed'; }
   for (const [k, v] of Object.entries(alerts)) console.log(`stale: alert ${k} ${v}`);
   if (errors.length) throw errors[0];
-  return { items, issue: target?.number ?? null, alerts, alert: Object.values(alerts).join(',') || 'none' };
+  return { items, issue: target?.number ?? null, state, alerts, alert: Object.values(alerts).join(',') || 'none' };
 }
 
 // --- missed scheduled runs ----------------------------------------------------------------------------
