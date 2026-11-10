@@ -33,6 +33,16 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
    coordinator's volatile state (C17): each run reads it first and writes it last. Only an issue the
    job opened counts; closed, it is reopened. Runs keep the marker line when they rewrite the body. It
    holds no count and no lock: if it is lost, the job opens a new one and every cap still holds.
+6. **State that cannot go stale (K042).** Everything volatile lives in the STATE issue and nowhere
+   else: Now, Next, what waits with its wake, what needs the owner, the last five results. It is
+   rewritten at the end of every coordinator run, with no PR. The repository's state file
+   (`canon.state`, usually `docs/STATE.md`) keeps only slow facts (programme, live flags, endpoints,
+   plans): no counts, "last updated" dates, commit SHAs, kit versions or "built since" lists; each
+   of those is a pointer to its generated source or a query, and the file's first line points to the
+   STATE issue. A project that opened its STATE issue by hand uses the same label, so the daily
+   stale-work job finds it: `stale.mjs report` adds one Ops board row (`state:<owner/name>`) when
+   the issue was last written 48 hours or more ago while pull requests merged since, and turns it ✅
+   once it is rewritten. Nothing goes to the owner.
 
 ## Caps, and how everything ends (every timer capped)
 

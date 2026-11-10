@@ -190,8 +190,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "hours": { "type": "object", "additionalProperties": false, "description": "Idle hours before an item is stale. Defaults: pr 48, conflict 24, inbox 24, card 48, initiative 48, wait 48.",
-          "properties": { "pr": { "type": "number", "minimum": 1 }, "conflict": { "type": "number", "minimum": 1 }, "inbox": { "type": "number", "minimum": 1 }, "card": { "type": "number", "minimum": 1 }, "initiative": { "type": "number", "minimum": 1 }, "wait": { "type": "number", "minimum": 1 } } },
+        "hours": { "type": "object", "additionalProperties": false, "description": "Idle hours before an item is stale. Defaults: pr 48, conflict 24, inbox 24, card 48, initiative 48, wait 48. `state` (48): how old the coordinator's STATE issue may be while pull requests merged since (K042).",
+          "properties": { "pr": { "type": "number", "minimum": 1 }, "conflict": { "type": "number", "minimum": 1 }, "inbox": { "type": "number", "minimum": 1 }, "card": { "type": "number", "minimum": 1 }, "initiative": { "type": "number", "minimum": 1 }, "wait": { "type": "number", "minimum": 1 }, "state": { "type": "number", "minimum": 1 } } },
         "initiative_labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "wait_labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "watch": { "type": "array", "items": { "enum": ["pr", "card", "inbox", "initiative", "wait"] }, "uniqueItems": true, "minItems": 1 },

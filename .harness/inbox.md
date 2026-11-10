@@ -49,7 +49,8 @@ lookup is "Not delivered", never the channel; a request carrying `wake-stopped` 
    writes a "Not delivered" note. `send` waits for that answer (`INBOX_WAIT_MS`, default 3 minutes)
    and ends non-zero without "Woke". Nothing is lost: a resend of the same ID tries again, `send
    --again` wakes a still-queued request once more, and the coordinator's own `pending` check at the
-   start of a turn finds it. Nothing ever asks a person to wake or relay (O15).
+   start of a turn finds it. Nothing here ever asks a person to wake or relay (O15); the one
+   failed-wake paste O15 allows is a project's own job, never this tool.
 5. A project without a channel may fire a routine from `harness-inbox.yml` (`INBOX_ROUTINE_URL`,
    `INBOX_ROUTINE_TOKEN`); a routine fire is not proof the session ran, so the channel is the
    standard. A request already picked up or done wakes nobody.

@@ -82,6 +82,11 @@ One table, `Rule · What enforces it · Where it lives · Proven by`, in a looku
 `CLAUDE.md`, `AGENTS.md` or an imported file. Each prevention is recorded there once.
 
 - When corrected: fix the mistake; for an escalated class, add or raise the row in the same change.
+- **An owner correction names its homes.** Its decision entry (C18) carries one `Homes:` line listing
+  every always-loaded place the correction must reach: the kit's core or owner defaults, each
+  project's instructions, each project's own rulebook. The coordinator files one inbox request per
+  home in another project (O14), and the correction is done only when each home carries it or its
+  request is closed with a reason. A rule that lives in one home is followed in one project.
 - A row whose enforcement is "nothing" is a rule; keep those few and judgment-only.
 - Drop a row once its mistake cannot happen (the architecture or type removed it).
 
