@@ -14,6 +14,7 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Rules left to projects, and conflicts | `project-specific.md` | Lookup |
 | The hands App in operation: when settings apply, the emergency stop, minutes per workflow | `hands.md` | Lookup |
 | Standing approvals: the one text every project copies into its project instructions, with its fill-ins and how it stays in step | `standing-approvals.md` | Lookup |
+| One-time permission line: how a thread offers the owner one permission line so a blocked step stops coming back to him, and the shape of a project's list of lines (A24) | `permission-line.md` | Lookup |
 | Cross-project requests: the issue shape, pickup wiring, setup, cost | `inbox.md`, `tools/inbox.mjs`, `templates/workflows/harness-inbox.yml` | Lookup |
 | Alerts: the one Telegram group, its rules, each sender's wiring, cost (O10) | `alerts.md`, `tools/notify.mjs` | Lookup |
 | Control panel: the channel-free core, its buttons, /status, decisions, the log; adapters: file, Telegram (K025) | `tools/panel.mjs` | Run, never loaded |
