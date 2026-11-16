@@ -82,6 +82,24 @@
   both when it starts a thread; a thread never switches model mid-session. A long thread hands over
   (C04) and starts clean (`/clear`, or a fresh thread) rather than compacting a cold context. The
   coordinator reads `/usage` once a week and puts one line in the daily summary.
+- **A24 The one-time permission line.** When a step on an approved, reviewed card is stopped by a
+  safety check or permission prompt on the owner's own machine, or is one he would otherwise repeat by
+  hand and a permission line would let an existing route do it, offer him the line once: first an
+  existing route that needs nothing from him, then this, a manual step last. The offer is a decision
+  with a recommendation: what was blocked and that nothing ran; the whole edit to the keystroke, with
+  minutes; what the lines open, a wide one in its own plain sentence; "not tested until you do it, if it
+  still refuses I report the exact text and stop". After he says done, read how the lines landed (a
+  valid file, inside the list; read the permission list only, never the whole file, which can hold
+  secrets) before using them, then report with proof. Only he edits permission
+  settings; an agent never edits them and never asks him to switch a check off. A refusal still ends
+  the attempt (C14): his own change to his own permissions, offered once, is the only thing that
+  reopens it, never a reworded command, another tool or another session. No offer for spending, going
+  live in production, deleting data without a verified backup, or secrets. The narrowest line that
+  works: an exact command, or a script from a reviewed commit on the default branch, at a path the agent
+  cannot write, whose arguments it does not execute (any other script line is wide); a wide one (`ssh <host>:*`) needs a named reason and a look-again
+  date and is never given for a machine that holds real data. Each project keeps one list of the lines
+  (line, what it opens, wide or narrow, card, date; no secrets), read first, additions asked in one
+  batch. The how-to and the list's shape: `permission-line.md`.
 
 ## GitHub enforcement
 
@@ -157,3 +175,4 @@
 | A21 | agents work in the project | Agent-configuration changes pass only from trusted account IDs. | K030 | script: the profile names `trusted_actors` and `harness-guard.yml` is installed. judgment: sampled PRs that changed agent configuration or `.github/workflows/` came from those accounts; no untrusted PR touching `.github/workflows/` was merged on a green guard. |
 | A22 | GitHub hosts a public repo | The limit is declared and renewed before it lapses. | K030 | script: when the live repository has an interaction limit (read through the API), the settings file declares `interaction_limits`. |
 | A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and never switched; long threads hand over instead of compacting cold; `/usage` is read weekly. | K032; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; the daily summaries carry a weekly usage line. |
+| A24 | a step on an approved card is stopped by a safety check or prompt on the owner's own machine, or a permission line would spare him a repeated manual step | The owner got one offer in the six-part shape (decision, whole edit with minutes, what the lines open, untested warning, read-back after done, result with proof) after existing routes and before any manual step; he alone edited the permission file; a refusal was never retried, reworded or routed around; no offer touched his reserved list; the lines are narrow or carry a reason and date; the project's list names each line, what it opens, its card and date. | K045 (owner, 11 Nov 2026: roadmap #101, from a runner-setup thread); C14; O17 | judgment: sampled stops on the owner's machine ended in the offer, not a workaround or a manual step; the list matches the owner's file as he reported it; no wide line covers a machine with real data. |

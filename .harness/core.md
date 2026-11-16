@@ -1,6 +1,6 @@
 # Harness Kit · core
 
-> Loaded every session; binds every agent. Records: `.harness/catalogue/core.md` (lookup only).
+> Loaded every session; binds every agent. Records: `catalogue/core.md` (lookup only).
 > The profile and rulebook win where stricter.
 
 ## The card
@@ -9,10 +9,10 @@
   one card: it plans and builds, its checks verify, its merge releases.
 - **C02 One outcome per card.** A card states its stage, goal, context, numbered pass/fail
   acceptance, the files it may touch, done-when and blocked-by.
-- **C03 How a card ends.** A card's closing note opens `DONE —`, `WAITING FOR YOU — <exact action>`
-  (owner acts next), `WAITING ON <who> — <what>` naming its wake (C22), or
-  `STOPPED — <why>`; then `Waiting for you:` · `Changed:` · `Found:` (`none` where empty); its last
-  line repeats the status word. "Nothing" is never a status while any party has an action.
+- **C03 How a card ends.** Its closing note opens `DONE —`, `WAITING FOR YOU — <exact action>`
+  (work waits on the owner), `WAITING ON <who> — <what>` naming its wake (C22), or `STOPPED — <why>`;
+  then `Waiting for you:` · `Changed:` · `Found:` (`none` where empty); its last line repeats the
+  status word. "Nothing" is never a status while work waits on anyone.
 - **C04 Never stall silently.** End a turn only when the card is DONE or STOPPED, nothing can move
   without the owner, or a wake you set will come (C25). A wait that can outlast the session leaves
   a durable handover (branch, PR, done work, exact next step), then ends.

@@ -3,7 +3,9 @@
 # The supply-chain floor's PR check (K030, A20 and A21), meant to be a required check:
 #   1. gitleaks scans the pull request's own commits for secrets (a pinned release, checksummed);
 #   2. a change to agent configuration (CLAUDE.md, AGENTS.md, .claude/**, .harness/**, .mcp.json,
-#      plugin code, git hooks) passes only when every author is in the profile's trusted_actors.
+#      plugin code, git hooks) passes only when every author is in the profile's trusted_actors;
+#   3. the pull request's description carries no Claude footer (O09, K044): the live body is re-read for
+#      up to 90 s so the scrubber can remove one first; one it cannot remove blocks the merge.
 # The guard's code, its gitleaks config and the trusted list come from the base branch; the PR's commits
 # are only read, never run. This workflow file itself runs from the PR (pull_request), so a change under
 # .github/ is judged like agent configuration, and a session never merges an untrusted PR that touches
@@ -80,3 +82,15 @@ jobs:
             exit 0
           fi
           node base/.harness/tools/guard.mjs agent-config --repo "$REPO" --pr "$PR" --profile base/.harness/profile.json
+      - name: No Claude footer in the pull request description (O09)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if ! grep -q 'pr-body' base/.harness/tools/guard.mjs 2>/dev/null; then
+            echo "::warning::the description check arrives with the next kit update; it runs from the next pull request"
+            exit 0
+          fi
+          node base/.harness/tools/guard.mjs pr-body --repo "$REPO" --pr "$PR"

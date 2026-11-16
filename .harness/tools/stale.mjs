@@ -25,7 +25,9 @@
 // Stale means no commit, comment or state change (GitHub's updated_at) for at least its threshold, in
 // hours (K035: thresholds are data, not code). The defaults:
 //   pr          48   an open PR, classified draft, conflicted, red, green-unmerged or waiting (checks
-//                    pending or none); bot PRs count like any other
+//                    pending or none); bot PRs count like any other. The inbox wake channel (a draft
+//                    from the branch `inbox-wake` or `wake-channel` in the repository itself) is open by
+//                    design and never listed (K046)
 //   conflict    24   an open PR that cannot merge because of a conflict
 //   inbox       24   an open `inbox` request in state queued or working (O14)
 //   card        48   an open issue labelled `card` or any `risk:*` label
@@ -57,7 +59,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse as parseInbox } from './inbox.mjs';
+import { parse as parseInbox, WAKE_BRANCHES } from './inbox.mjs';
 import { parseYaml } from './lib.mjs';
 import { TOPICS, raise, resolveKey, store, telegram, opsBoard, localTime } from './notify.mjs';
 
@@ -135,6 +137,13 @@ export function classifyPr(pr, checks) {
   if (checks === 'green') return 'green-unmerged';
   return 'waiting';
 }
+
+/** Whether an open PR is the repository's inbox wake channel (inbox.mjs `channel --open`): a draft from
+ *  one of the kit's wake branches in the repository itself. It stays open by design and is never stale
+ *  work (K046). Matched by the branch the kit's installer names, never by title; a PR from a fork
+ *  never matches. */
+export const isWakeChannel = (pr, repo) => pr?.draft === true && WAKE_BRANCHES.includes(pr?.head?.ref)
+  && String(pr?.head?.repo?.full_name || '').toLowerCase() === String(repo).toLowerCase();
 
 /** An open issue's kind for this list, or null: initiative, wait, inbox queued/working, card, risk. */
 export function classifyIssue(issue, s = settings()) {
@@ -257,6 +266,7 @@ export async function scan(repo, now = Date.now(), s = settings(loadData())) {
   if (s.watch.includes('pr')) {
     const prMin = Math.min(s.hours.pr, s.hours.conflict);
     for (const p of await pages(`/repos/${repo}/pulls?state=open`)) {
+      if (isWakeChannel(p, repo)) continue; // open on purpose (K046)
       if (idleHours(p.updated_at, now) < prMin) continue; // too fresh for any PR threshold: no more calls
       const full = await api('GET', `/repos/${repo}/pulls/${p.number}`);
       const sha = full.head.sha;

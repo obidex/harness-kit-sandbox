@@ -36,6 +36,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
+      actions: write   # starts a failed harness-guard run again after it removes a footer (K044)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
