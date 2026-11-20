@@ -42,5 +42,6 @@ asks for it and reports the model it actually ran on.
 | Clear, bounded build (tier 1-2) | Sonnet | medium |
 | Hard, risky or unattended work; tier-3 design | Opus | high |
 | Tier-3 independent review (C10) | Opus | high |
+| Second review of a pull request (`review.md`, K054) | Sonnet; Opus on high-risk paths | medium |
 | Coordinator turns (routing, short replies) | as set by the platform | low or medium |
 | Anything at `xhigh` or `max` | only with a measured gain, recorded on its card | |
