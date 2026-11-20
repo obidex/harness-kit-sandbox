@@ -1,0 +1,74 @@
+# Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
+# A second reviewer on every pull request (K054; .harness/tools/review.mjs, review.md). When a
+# pull-request workflow named below finishes green, one job waits until every check on that commit is
+# green, reads the diff and the rulebook, asks a Claude model for the problems it would block the
+# merge for, and keeps ONE comment on the pull request: the findings, or "no blockers".
+# Advisory (O07): never a required check, never an approval, never C10's independent reviewer.
+# Off until the Actions variable REVIEW_FEDERATION_RULE is set: the job is skipped without it.
+# No stored key: GitHub's identity token for this run is swapped for an Anthropic access token that
+# lasts minutes (workload identity federation). REVIEW_FEDERATION_RULE, REVIEW_ORGANIZATION,
+# REVIEW_SERVICE_ACCOUNT and REVIEW_WORKSPACE are identifiers, not secrets. The federation rule on the
+# other side is tied to this file on the default branch, so no other workflow or branch gets a token.
+# The pull request is data: this file runs from the default branch (workflow_run), checks out only the
+# default branch's .harness/tools, never the pull request, and its only output is the comment. A
+# fork's pull request, a bot's and a draft are skipped. Safe on a self-hosted runner for that reason;
+# the access token stays in the job's memory.
+# Caps, in review.mjs: $2.50 and 40 reviews a UTC day per repository (REVIEW_DAILY_USD and
+# REVIEW_DAILY_CAP may only lower them), one review per commit, 5 minutes a run.
+# Cost (O13): the API calls, about $0.10 a review on the default model and twice that on high-risk
+# paths; and one short job per finished workflow listed below, GitHub-hosted minutes only on a private
+# repository without a self-hosted RUNNER (about 1 a run; up to 3 while it waits for other checks).
+# A pull-request workflow with another name starts nothing here: its checks are seen only when they
+# finish within 90 seconds of a listed one.
+name: harness-review
+
+on:
+  workflow_run:
+    workflows: [harness-guard, harness-audit, ci, CI, check, checks, test, tests, build, hands-check]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-review-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    name: harness-review
+    if: >-
+      vars.REVIEW_FEDERATION_RULE != '' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      checks: read
+      statuses: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .harness/tools
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Review the pull request and keep its one comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_FEDERATION_RULE: ${{ vars.REVIEW_FEDERATION_RULE }}
+          REVIEW_ORGANIZATION: ${{ vars.REVIEW_ORGANIZATION }}
+          REVIEW_SERVICE_ACCOUNT: ${{ vars.REVIEW_SERVICE_ACCOUNT }}
+          REVIEW_WORKSPACE: ${{ vars.REVIEW_WORKSPACE }}
+          REVIEW_DAILY_USD: ${{ vars.REVIEW_DAILY_USD }}
+          REVIEW_DAILY_CAP: ${{ vars.REVIEW_DAILY_CAP }}
+        run: node .harness/tools/review.mjs run

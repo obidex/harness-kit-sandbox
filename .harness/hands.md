@@ -124,6 +124,7 @@ repositories and K repositories that pin the kit:
 | `harness-scrub` | each project | every issue, PR, comment and review posted or edited | 1 | ~1 per event: the largest cost on a busy private repo (~700+ events a month on one measured project); 0 with a self-hosted `RUNNER` |
 | `harness-guard` | each project | PR opened, pushed, reopened or edited (a title or body edit re-runs it) | 1 | ~1 per PR push or edit (about 20 s); 0 with a self-hosted `RUNNER` |
 | `harness-stale` | each project | daily; dispatch | 1 | ~30 (one short job a day); 0 with a self-hosted `RUNNER` |
+| `harness-review` | each project | a listed pull-request workflow finished green; skipped unless `REVIEW_FEDERATION_RULE` is set | 1 | ~1 per finished workflow (up to 3 while it waits for other checks); 0 with a self-hosted `RUNNER`. The API calls are paid from the API credit (`review.md`) |
 
 Before 0.6.0, `hands-settings` ran hourly with one job per enrolled repository:
 24 × 30 × (2 + N) minutes, which is 2,880 with N = 2 and 4,320 with N = 4.
