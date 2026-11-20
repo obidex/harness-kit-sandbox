@@ -1,10 +1,10 @@
 {
-  "version": "0.47.0",
-  "commit": "8aa7036bbed951641d95c913739d9021555ff27f",
+  "version": "0.47.1",
+  "commit": "94a97886ddc0388ac3dda9e3b49842041bdce34a",
   "source": "https://github.com/obidex/harness-kit",
   "previous": {
-    "version": "0.44.0",
-    "commit": "4816997d37552ad4843583d49b793fcbc2c5b5c1"
+    "version": "0.47.0",
+    "commit": "8aa7036bbed951641d95c913739d9021555ff27f"
   },
   "files": {
     ".claude/skills/correct/SKILL.md": "4c48ebc26ad7b80666466e7899556b0a0b5a29b28e8965242dc4f72f529e00e1",
@@ -48,7 +48,7 @@
     ".harness/tools/hands.mjs": "5b4fb823c3e9265de65dfe8c3a742b4f05d02425fdc8134b27c412d1ad44afba",
     ".harness/tools/harness.mjs": "ff223ffaebf239034c9936bda2dc113e9d0093476f1069ff3c4a4c4afce86124",
     ".harness/tools/inbox.mjs": "074df6fbce9a0d08a92b0460d4113fa51ab0850f89901435bdf446c885fd2c27",
-    ".harness/tools/lib.mjs": "fa125c75552a27e2312597a39d6a67ad17902a21054119438e5203aabea072b2",
+    ".harness/tools/lib.mjs": "317d0c32e4d7ab28f984667328bae96f2edfaab85069e162f1eef79cf5e87349",
     ".harness/tools/load.mjs": "4444f7aea2b94a55efe698253b9fcda7f058711eb991520a479acad1a8fb32ca",
     ".harness/tools/metrics.mjs": "73911fcdd22031e41a2aae9d2b43d822fb3ce0210ec9e3ecaef93c0309aaf9dc",
     ".harness/tools/notify.mjs": "f85a7f865ebe796303c99550db84c285eda6bab76dee47c05cc5170832618eaa",
@@ -56,7 +56,7 @@
     ".harness/tools/scrub.mjs": "1a43d2432ea4a84b5539ed2fa4fcfdc794467f5b163cc3e3d1528a8a6ee5330f",
     ".harness/tools/stale.mjs": "96db32ea9facf9039bb7a826c6fa6861c915cc731781c280476ed18ff152d257",
     ".harness/tools/wake.mjs": "cf8f4fff7f345f30315ac90b4b7cd70329fa3dda828554f1ce61a80bd0664d4d",
-    ".harness/VERSION": "ce0ae25b92cad1efa474eb0605bcb1160f6913aed259c1057035987a67f31ae4",
+    ".harness/VERSION": "8cc59c911591c21d1e150c5eafe2d7ea29be297c43f29b7d7eea4e24bd4eb11b",
     ".harness/wake.md": "04931c482fb007938f31ea9b6d80ea7767dce747ac996a57dcf4866e48770723"
   }
 }

@@ -71,7 +71,7 @@ export function parseYaml(text) {
     if (/(:|^-)\s*[|>][-+0-9]*\s*(#.*)?$/.test(body)) {
       const block = [];
       while (i + 1 < raw.length && (/^\s*$/.test(raw[i + 1]) || raw[i + 1].match(/^ */)[0].length > indent)) block.push(raw[++i].trim());
-      body = body.replace(/[|>][-+0-9]*\s*(#.*)?$/, JSON.stringify(block.join('\n')));
+      body = body.replace(/[|>][-+0-9]*\s*(#.*)?$/, () => JSON.stringify(block.join('\n'))); // a function: a block's `$'` or `$&` is text, not a replacement pattern
     }
     lines.push({ indent, body });
   }
