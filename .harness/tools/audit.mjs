@@ -25,6 +25,7 @@ import { parseYaml, triggers, gh, validateSchema, fileHash } from './lib.mjs';
 import { scrub } from './scrub.mjs';
 import { plan as settingsPlan, validate as settingsValidate, SETTINGS_PATH } from './hands.mjs';
 import { loadSet, DEFAULT_BUDGET } from './load.mjs';
+import { problems as decisionProblems, load as loadDecisions } from './decisions.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
@@ -411,6 +412,13 @@ const checks = {
       const diff = git('log', '-50', '-p', '--format=%x1e%h', '--', d) || '';
       const removing = diff.split('\x1e').filter((c) => c.split('\n').some((l) => /^-[^-]/.test(l) && l.trim() !== '-')).map((c) => c.trim().slice(0, 7));
       if (removing.length) problems.push(`${d} lost lines in ${removing.length} of its recent commits (${removing.slice(0, 5).join(', ')}): append-only needs judgment`);
+    }
+    // one file per decision (K052): names, numbers used once, the log closed; a written file is never edited
+    {
+      const reg = loadDecisions(root, d);
+      problems.push(...decisionProblems(reg));
+      const touched = (git('log', '-200', '--diff-filter=MDR', '--name-only', '--format=', '--', reg.folder) || '').split('\n').filter(Boolean);
+      if (touched.length) problems.push(`${[...new Set(touched)].slice(0, 5).join(', ')} changed after it was written: a decision is superseded by a new file, never edited (needs judgment)`);
     }
     for (const g of profile.canon.generated || []) if (!has(g)) problems.push(`generated ${g} missing`);
     const drift = (profile.canon.generated || []).length && /git diff --exit-code|--check|drift/i.test(wfText);

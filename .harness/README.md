@@ -13,6 +13,10 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Rule catalogue: applies when, outcome, source, verification per ID | `catalogue/` | Lookup |
 | Rules left to projects, and conflicts | `project-specific.md` | Lookup |
 | The hands App in operation: when settings apply, the emergency stop, minutes per workflow | `hands.md` | Lookup |
+| Models and effort: which model and effort each kind of run uses, and Anthropic's effort advice (B0, B3 of K049) | `models.md` | Lookup |
+| Clean-up card: the pilot template that may change patterns on purpose (C26's exception, K049) | `cards/cleanup.md` | Lookup |
+| Bulk work: every ready card at once, the two reasons to wait, subagents, the owner's browser, scarce resources, one report at the end; an agent on a server (C20, HI05, K051) | `bulk.md` | Lookup |
+| Decisions, one file each: the closed log, `decisions/<ID>.md`, what two threads do with one number, the check (C17, K052) | `decisions.md`, `tools/decisions.mjs` | Lookup; tool run, never loaded |
 | Standing approvals: the one text every project copies into its project instructions, with its fill-ins and how it stays in step | `standing-approvals.md` | Lookup |
 | One-time permission line: how a thread offers the owner one permission line so a blocked step stops coming back to him, and the shape of a project's list of lines (A24) | `permission-line.md` | Lookup |
 | Cross-project requests: the issue shape, pickup wiring, setup, cost | `inbox.md`, `tools/inbox.mjs`, `templates/workflows/harness-inbox.yml` | Lookup |

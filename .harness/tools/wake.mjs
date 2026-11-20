@@ -50,9 +50,9 @@ export const STOPPED = 'wake-stopped';     // on an issue: the job stopped wakin
 export const PAUSED = 'wake-paused';       // on the STATE issue: no run starts except by hand (failed starts, a chain)
 export const BACKSTOP_OFF = 'backstop-off'; // on the STATE issue: the backstop rests; the next run removes it
 export const BOT = 'github-actions[bot]';
-export const DAILY_CAP = 8;          // runs per repository per 24 h, hard ceiling
-export const ISSUE_CAP = 3;          // runs per woken issue per 24 h
-export const ISSUE_TOTAL = 9;        // runs per woken issue in LEDGER_DAYS, then the issue is stopped for good
+export const DAILY_CAP = 48;         // runs per repository per 24 h, hard ceiling (8 until K051: a loop-stopper, not a throttle)
+export const ISSUE_CAP = 12;         // runs per woken issue per 24 h (3 until K051)
+export const ISSUE_TOTAL = 36;       // runs per woken issue in LEDGER_DAYS (three full days of ISSUE_CAP, as before), then the issue is stopped for good
 export const CLAIM_TTL_H = 6;        // a claim older than this belongs to a run that died
 export const EMPTY_STOP = 3;         // empty backstops in a row, then the backstop stops
 export const STUCK_STOP = 3;         // backstop runs in a row for the same work, or failed fires in a row: stop
@@ -224,7 +224,7 @@ const names = (i) => (i.labels || []).map((l) => l.name ?? l);
  *  a count. If the listing is cut off, the decision fails closed: no run starts on an unread count. */
 async function receipts(repo, now = Date.now()) {
   const since = new Date(now - LEDGER_DAYS * DAY).toISOString();
-  const max = 50, l = await pages(`/repos/${repo}/issues/comments?since=${since}&sort=created&direction=asc`, max);
+  const max = 200, l = await pages(`/repos/${repo}/issues/comments?since=${since}&sort=created&direction=asc`, max);
   if (l.length >= max * 100) throw new Error(`more than ${max * 100} comments in ${LEDGER_DAYS} days: the receipts cannot all be read, so no run starts`);
   return ledger(l);
 }

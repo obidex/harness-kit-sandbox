@@ -11,6 +11,9 @@
 // (default 90) before it fails: a footer the scrubber can still remove never stays red, one it cannot
 // (a fork's read-only token, a stopped scrubber) cannot merge.
 //
+// Any pull request that adds or changes `.claude/settings.local.json` or `CLAUDE.local.md` fails,
+// whoever wrote it: that is one person's local state, and saved permission answers can hold secrets.
+//
 // A pull request that changes what agents load or run (CLAUDE.md, AGENTS.md, .claude/**, .harness/**,
 // .mcp.json, plugin code, git hooks) passes only when its author and every commit's author and
 // committer are accounts the profile's `trusted_actors` names (by numeric GitHub ID, never by login,
@@ -43,6 +46,14 @@ export const WEB_FLOW_ID = 19864447;
 /** Dependabot's bot user: trusted only to move action pins (A18), and only when that is all a PR does. */
 export const DEPENDABOT_ID = 49699333;
 const PIN_ONLY = /^\.github\/workflows\/[^/]+\.ya?ml$/;
+
+/**
+ * A person's local Claude Code state, never committed by anyone (roadmap #125 A2): "don't ask again"
+ * answers land in settings.local.json and have carried secrets into pushed repositories.
+ */
+export const LOCAL_STATE = /(^|\/)(\.claude\/settings\.local\.json|CLAUDE\.local\.md)$/;
+/** The local-state files a PR adds or changes (removing one is fine). files: [{ filename, status }]. */
+export const localState = (files) => files.filter((f) => f.status !== 'removed' && LOCAL_STATE.test(f.filename)).map((f) => f.filename);
 
 /** The changed paths that are agent configuration. */
 export const agentConfig = (files) => files.filter((f) => AGENT_CONFIG.test(f));
@@ -128,6 +139,12 @@ async function main() {
   const [pr, files, commits] = await Promise.all([get(`/repos/${repo}/pulls/${n}`), all(`/repos/${repo}/pulls/${n}/files`, 30), all(`/repos/${repo}/pulls/${n}/commits`, 3)]);
   // GitHub lists at most 250 commits of a PR: a longer one is refused, never judged in part
   if (!Number.isInteger(pr.commits) || pr.commits !== commits.length) throw new Error(`the PR has ${pr.commits} commits but GitHub listed ${commits.length}; refusing to judge it in part`);
+  const local = localState(files);
+  if (local.length) {
+    console.log(`guard: FAIL local Claude Code state is committed (${local.join(', ')}): remove it and add it to .gitignore; a secret in it is burned (O04)`);
+    summary(`- **FAIL**: local Claude Code state is committed (${local.join(', ')}). Remove it and add it to \`.gitignore\`.`);
+    process.exit(1);
+  }
   const v = verdict({ pr, commits, files: files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean)), trusted });
   if (!v.touched.length) { console.log('guard: no agent configuration changed'); summary('- No agent configuration changed.'); return; }
   const list = v.touched.slice(0, 20).join(', ') + (v.touched.length > 20 ? ` and ${v.touched.length - 20} more` : '');

@@ -7,15 +7,16 @@
 ## Kinds: what a sender reports (K037)
 
 Senders name a **kind**, never a channel, so the channel can change without touching them. The owner's
-group gets only the first four; everything technical goes to the Ops board. `problem` (below) is the
+group gets only these four (K048: `needs_you` after 24 h, `outage` at once, the rest in one weekly brief); everything technical goes to the Ops board. `problem` (below) is the
 older form, kept until every sender has moved to a kind.
 
 | Kind | Command | Where | What the owner sees |
 |---|---|---|---|
-| `needs_you` | `needs_you --key --what --step --where --when [--minutes] [--link]` | "Needs you", loud by day | the owner's five lines (below). Several due together go as **one** message, each step numbered; it turns `✅ Sorted: …` when the last of them is sorted |
+| `needs_you` | `needs_you --key --what --step --where --when [--minutes] [--link]` | "Needs you", loud by day, **after 24 h** (`ALERTS_NEEDS_HOLD_HOURS`, K048) | the owner's five lines (below). Until then it waits for the brief; a step that blocks work for a day is urgent, a younger one is not. Several due together go as **one** message, each step numbered; it turns `✅ Sorted: …` when the last of them is sorted |
 | `outage` | `outage --key --system <Website, ERP> [--who]` | "Needs you", always loud | `⚠️ Website is down since 11:05` / `Who: Platform` / `Do: nothing` / `When: now`. Resolve edits the same message to `✅ Website was down 12 min. Fixed.` / `Do: nothing` (an edit is silent; never a second message). Also a 🛑 row on the Ops board |
-| `good_news` | `good_news --text [--key] [--summary-only]` (the last two only on a host's file store) | "Good news", silent | `🎉 ERP: the purchase orders screen is live. Staff can use it now.` / `Do: nothing`. One key goes out once; `--summary-only` keeps it for the summary |
-| `summary` | `summary [--stores] [--progress <line>]…` | "Summary", 20:00 Damascus | ☀️ the five lines: what went live and what is in progress; `Who: you` with his first open step (and how many more) when something waits on him, else `Who: Platform`, `Do: nothing` and `Where: <the Ops board>`. No message on a day with nothing to say; once a day; needs a file store among `--stores` |
+| `good_news` | `good_news --text [--key]` (a host's file store only) | none: kept | `🎉 ERP: the purchase orders screen is live. Staff can use it now.` waits for the brief and is never sent on its own. One key is kept once |
+| `brief` | `brief [--stores] [--dry-run] [--now]` | "Summary", Saturday 10:00 Damascus (`ALERTS_BRIEF_DAY`, `ALERTS_BRIEF_HOUR`) | `🗓 Weekly brief · 14 Nov`, then at most 3 `🎉` lines (the newest since the last brief), then `Needs you:` with each open step not already sent alone (`1) <what> Do: <step> (<place>)`) or `Nothing needs you.` No status, counts or links. Skipped in a week with nothing to say; once a week; needs a file store among `--stores`. A sender runs it on every tick: it acts only in its hour |
+| `summary` | | | retired (K048): posts nothing |
 | `ops` | `ops --key --text [--link] [--system] [--who]` | the Ops board only | nothing: one comment per problem and per resolve, the board's row ⚠️ then ✅ |
 
 - **The owner's format (owner, roadmap #59, 8 Nov 2026; K038).** Every owner-facing message is at most
@@ -53,8 +54,8 @@ older form, kept until every sender has moved to a kind.
   "You: nothing" (`plainProblems`); a link may carry a path. A refused message is an error in the
   sender's run, so its fixture catches it. `ops` carries technical text freely.
 - **Rule D.** No message carries a button (the template test checks the source).
-- **The clock.** A kind is never escalated or reminded: "Needs you" is already his, and the summary lists
-  what still waits on him. On a host, `needs_you` and `ops` are held 10 minutes like any problem; an
+- **The clock.** A kind is never escalated or reminded: "Needs you" is already his, and a younger one is
+  in the brief. On a host, `ops` is held 10 minutes like any problem and `needs_you` 24 hours; an
   outage goes at once and is never capped. A stuck product wake (`pickup/<repo>#<n>`, infra I045) is a
   `needs_you` with the line to paste as its step.
 - **Topics.** `setup` adds "Good news" and "Summary". Until it has run again, their messages reach the
@@ -75,7 +76,7 @@ older form, kept until every sender has moved to a kind.
   `hands-report` reports this way.
 - `note --text [--link]` writes one line on the board's log with no row: what a host did by itself, a
   maintenance notice, a monthly count.
-- `digest` is retired: it posts nothing (the evening summary and the board replace it). `test` sends
+- `digest` is retired: it posts nothing (the weekly brief and the board replace it). `test` sends
   one silent message in "Summary" and edits it to ✅.
 
 ## The group
@@ -90,7 +91,7 @@ unpins its problem.
 |---|---|---|---|
 | Needs you | `needs` | loud | only what needs the owner: an action-required event, a production outage, a problem escalated after 3 hours |
 | Good news | `good` | silent | a launch people can use (K037) |
-| Summary | `summary` | silent | the evening summary, and the `test` proof |
+| Summary | `summary` | silent | the weekly brief, and the `test` proof |
 
 The `erp`, `website`, `kit`, `ops` and `daily` topics are retired (K039, `notify.mjs retire`, once a
 product's senders have moved to kinds); technical alerts go to the Ops board (O10).
@@ -132,8 +133,8 @@ A new project gets its own topic: add it to `TOPICS` in `notify.mjs` (a kit rele
 8. **Stale is never OK.** A check that reads an outside source (a job's last run, a report page, an
    API answer) and finds it older than its threshold says STALE, never OK, and opens a capped problem;
    a check that could not read the source at all says so, never "none found" (K035).
-9. **Good news only as a kind (K037, superseding "never success").** Something people can use went
-   live is a `good_news` line, or a line in the evening summary. Routine progress, green runs and
+9. **Good news only as a kind (K037, K048).** Something people can use went
+   live is a `good_news` line, kept for the weekly brief. Routine progress, green runs and
    technical success are never sent; they belong on the Ops board.
 10. **No sender talks to Telegram directly.** Everything goes through `notify.mjs`, so the rules hold
    everywhere (audit O10).

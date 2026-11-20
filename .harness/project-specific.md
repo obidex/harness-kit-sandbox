@@ -26,7 +26,7 @@
 | L14 | Self-hosted runner lanes, fallbacks and the ops menu's operations | ERP runbooks/automations · D269, D279; WEB db workflows · W199, W236 | Infrastructure of one setup. HI01–HI04 keep the generic outcomes. |
 | L15 | The coordinator's per-card status message (progress bar, pace estimate, check cadence) | ERP STRATEGIST §1; WEB skills/coordinate | Identical in both, but it is coordinator display, not a thread rule. Candidate to promote to owner defaults in H5. |
 | L16 | Dependency-bot handling | ERP run-card §7; WEB AGENTS §6 · W114, W123 | The two projects differ (see X04); left local until the owner picks one. |
-| L17 | Thread capacity (threads at once, threads sharing a layout) | ERP STRATEGIST §1 · D256; WEB AGENTS §8 | Capacity depends on the project's CI and shared files. |
+| L17 | Thread capacity (threads at once, threads sharing a layout) | ERP STRATEGIST §1 · D256; WEB AGENTS §8 | The kit sets no limit on threads (C20, `bulk.md`, K051); what a project still names is its own scarce resources and shared files. |
 | L18 | The owner's personal context and vocabulary table | ERP STRATEGIST §5 | Personal data: never in this public repo. |
 | L19 | Service identifiers (hosting project and team ids, content project ids, live URLs) | ERP STRATEGIST §1; WEB AGENTS §1 | Private identifiers: never in this public repo; the profile names services by kind. |
 | L20 | Release and launch plans, roadmaps, finding counts | ERP STATE, ROADMAP; WEB STATE | Volatile project state. |

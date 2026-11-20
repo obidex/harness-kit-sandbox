@@ -78,10 +78,13 @@
   accounting, security, hard or risky work, whatever the tier, and preferred for tier-3 review
   (C10, O07); Haiku 5.5 only for reading logs and summarizing when that saves real work, never for
   review or for money, stock or permission code. Plain status stays on existing checks, with no
-  extra turn. Effort: low for a log digest, the default for building, high only for a tier-3 design or a review. The coordinator names
-  both when it starts a thread; a thread never switches model mid-session. A long thread hands over
-  (C04) and starts clean (`/clear`, or a fresh thread) rather than compacting a cold context. The
-  coordinator reads `/usage` once a week and puts one line in the daily summary.
+  extra turn. Effort (Anthropic's guidance, K049; facts in `models.md`): low for a log digest
+  or a quick helper, medium where results hold, high for hard work and long unattended runs, xhigh or
+  max only where a gain was measured. A subagent is named with its model and effort, or it inherits
+  the thread's. The coordinator names both when it starts a thread; only the coordinator switches a
+  thread's model. A long thread hands over (C04) and starts clean (`/clear`, or a fresh thread) rather
+  than compacting a cold context. The coordinator reads `/usage` once a week and puts one line in the
+  weekly brief.
 - **A24 The one-time permission line.** When a step on an approved, reviewed card is stopped by a
   safety check or permission prompt on the owner's own machine, or is one he would otherwise repeat by
   hand and a permission line would let an existing route do it, offer him the line once: first an
@@ -174,5 +177,5 @@
 | A20 | the project has pull requests | `harness-guard` runs gitleaks on every PR and is required; a public repository's settings file turns on secret scanning and push protection. | K030 | script: `harness-guard.yml` is installed and the default branch's ruleset requires `harness-guard`; on a public repository the settings file enables both secret protections. |
 | A21 | agents work in the project | Agent-configuration changes pass only from trusted account IDs. | K030 | script: the profile names `trusted_actors` and `harness-guard.yml` is installed. judgment: sampled PRs that changed agent configuration or `.github/workflows/` came from those accounts; no untrusted PR touching `.github/workflows/` was merged on a green guard. |
 | A22 | GitHub hosts a public repo | The limit is declared and renewed before it lapses. | K030 | script: when the live repository has an interaction limit (read through the API), the settings file declares `interaction_limits`. |
-| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and never switched; long threads hand over instead of compacting cold; `/usage` is read weekly. | K032; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; the daily summaries carry a weekly usage line. |
+| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and switched only by the coordinator; subagents' model and effort are named or inherited knowingly; long threads hand over instead of compacting cold; `/usage` is read weekly. | K032, K049; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; the weekly brief carries a usage line. |
 | A24 | a step on an approved card is stopped by a safety check or prompt on the owner's own machine, or a permission line would spare him a repeated manual step | The owner got one offer in the six-part shape (decision, whole edit with minutes, what the lines open, untested warning, read-back after done, result with proof) after existing routes and before any manual step; he alone edited the permission file; a refusal was never retried, reworded or routed around; no offer touched his reserved list; the lines are narrow or carry a reason and date; the project's list names each line, what it opens, its card and date. | K045 (owner, 11 Nov 2026: roadmap #101, from a runner-setup thread); C14; O17 | judgment: sampled stops on the owner's machine ended in the offer, not a workaround or a manual step; the list matches the owner's file as he reported it; no wide line covers a machine with real data. |

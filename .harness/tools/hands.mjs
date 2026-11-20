@@ -10,6 +10,10 @@
 //                                                           the live settings are read back and must match
 //   node .harness/tools/hands.mjs export --repo owner/name  the live settings as a settings file (to enroll)
 //   node .harness/tools/hands.mjs control-check [root]      the control repository's workflows keep the App key on main
+//                                                           and are byte copies of the pinned kit's templates (K053)
+//   node .harness/tools/hands.mjs control-update --root <control> --kit <kit checkout at the target version>
+//                                 [--was <the kit it pins now>]   move the control repository's pin AND its workflow
+//                                                           copies to that kit; prints each path to stage (K053)
 //   node .harness/tools/hands.mjs keep [--only owner/name]  bring every open kit update PR that is behind its base up
 //                                                           to date (K012); JSON {watched, updated} on stdout
 //
@@ -25,7 +29,7 @@
 // replaced when they differ; labels are created or updated. Nothing unnamed is touched unless the
 // file's prune says so.
 
-import { readFileSync, existsSync, readdirSync, appendFileSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, appendFileSync, writeFileSync, mkdirSync, rmSync, lstatSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateSchema, parseYaml, triggers, plainValueProblems } from './lib.mjs';
@@ -169,6 +173,53 @@ export function controlProblems(files) {
       if (offEvent.length) problems.push(`${f}: job ${id} can reach the App key on a repository event (${offEvent.join(', ')})`);
       if (!calledOnly && !/github\.ref\s*==\s*'refs\/heads\/main'/.test(String(job.if ?? ''))) problems.push(`${f}: job ${id} reaches the App key without the main-branch guard in its own if:`);
     }
+  }
+  return problems;
+}
+
+// --- the control repository's own workflows travel with its pin (K053) ----------------------------
+// A control repository's workflows are byte copies of the kit's templates/hands at HANDS_KIT_VERSION.
+// Until 0.47.0 hands-update moved only the pin, so the copies went stale release after release.
+const CONTROL_WF = /^hands-[a-z0-9-]+\.yml$/;
+const templatesIn = (kit) => {
+  const d = join(kit, '.harness/templates/hands');
+  return existsSync(d) ? readdirSync(d).filter((f) => CONTROL_WF.test(f)).sort() : [];
+};
+const isLink = (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } };
+/**
+ * Move a control repository to the kit in `kit`: HANDS_KIT_VERSION, and every templates/hands file
+ * copied byte for byte into .github/workflows. A template the kit in `was` shipped and the new kit
+ * dropped is removed; any other workflow there is the repository's own and is never touched.
+ * Returns { version, written, removed, paths } (paths: what the update PR stages).
+ */
+export function controlUpdate(root, kit, was) {
+  const version = readFileSync(join(kit, '.harness/VERSION'), 'utf8').trim();
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) throw new Error(`${kit} holds no kit version`);
+  const names = templatesIn(kit);
+  if (!names.length) throw new Error(`kit ${version} ships no control workflows (.harness/templates/hands)`);
+  const dir = join(root, '.github/workflows');
+  for (const p of [join(root, '.github'), dir, join(root, 'HANDS_KIT_VERSION')]) if (isLink(p)) throw new Error(`refusing to write through a symlink: ${p}`);
+  mkdirSync(dir, { recursive: true });
+  const written = [], removed = [];
+  for (const f of names) {
+    const dest = join(dir, f), buf = readFileSync(join(kit, '.harness/templates/hands', f));
+    if (isLink(dest)) throw new Error(`refusing to write through a symlink: ${dest}`);
+    if (existsSync(dest) && readFileSync(dest).equals(buf)) continue;
+    writeFileSync(dest, buf); written.push(f);
+  }
+  for (const f of was ? templatesIn(was) : []) {
+    if (names.includes(f) || !existsSync(join(dir, f))) continue;
+    rmSync(join(dir, f)); removed.push(f);
+  }
+  writeFileSync(join(root, 'HANDS_KIT_VERSION'), `${version}\n`);
+  return { version, written, removed, paths: ['HANDS_KIT_VERSION', ...[...names, ...removed].sort().map((f) => `.github/workflows/${f}`)] };
+}
+/** The control workflows that are not byte copies of the kit's templates (`files`: name → text or Buffer). */
+export function controlCopyProblems(files, kit) {
+  const problems = [];
+  for (const f of templatesIn(kit)) {
+    if (!(f in files)) problems.push(`${f}: missing; the pinned kit ships it (.harness/templates/hands): copy it, never write it here`);
+    else if (!Buffer.from(files[f]).equals(readFileSync(join(kit, '.harness/templates/hands', f)))) problems.push(`${f}: differs from the pinned kit's template; change it in the kit, and copy it here with the version (hands-update does)`);
   }
   return problems;
 }
@@ -331,9 +382,23 @@ async function main() {
     const dir = join(resolve(argv[1] || '.'), '.github/workflows');
     const files = Object.fromEntries(readdirSync(dir).filter((x) => /\.ya?ml$/.test(x)).map((x) => [x, readFileSync(join(dir, x), 'utf8')]));
     const problems = controlProblems(files);
+    // the copies match the kit this repository pins (K053). Only where that can be judged: this tool
+    // runs from a kit checkout (an installed project has no templates) at the pinned version.
+    const root = resolve(argv[1] || '.'), kit = resolve(kitDir, '..');
+    const pin = existsSync(join(root, 'HANDS_KIT_VERSION')) ? readFileSync(join(root, 'HANDS_KIT_VERSION'), 'utf8').trim() : null;
+    const copies = pin !== null && pin === readFileSync(join(kitDir, 'VERSION'), 'utf8').trim() && existsSync(join(kitDir, 'templates/hands'));
+    if (copies) problems.push(...controlCopyProblems(Object.fromEntries(readdirSync(dir).filter((x) => /\.ya?ml$/.test(x)).map((x) => [x, readFileSync(join(dir, x))])), kit));
     for (const p of problems) console.log(`hands: FAIL ${p}`);
     if (problems.length) process.exit(1);
-    console.log(`hands: ${Object.keys(files).length} control workflows keep the App key on main`);
+    console.log(`hands: ${Object.keys(files).length} control workflows keep the App key on main${copies ? `, and each kit workflow is the pinned kit's template (${pin})` : ''}`);
+    return;
+  }
+  if (cmd === 'control-update') {
+    const root = opt('--root'), kit = opt('--kit');
+    if (!root || !kit) throw new Error('control-update needs --root <control repository> and --kit <kit checkout at the target version>');
+    const r = controlUpdate(resolve(root), resolve(kit), opt('--was') ? resolve(opt('--was')) : null);
+    console.error(`hands: control repository at kit ${r.version}: ${r.written.length} workflow(s) copied${r.written.length ? ` (${r.written.join(', ')})` : ''}, ${r.removed.length} removed${r.removed.length ? ` (${r.removed.join(', ')})` : ''}`);
+    console.log(r.paths.join('\n'));
     return;
   }
   if (cmd === 'discover') {
@@ -417,7 +482,7 @@ async function main() {
     }
     return;
   }
-  throw new Error('usage: hands.mjs validate|discover|drift|keep|plan|apply|export|control-check  (see the header of this file)');
+  throw new Error('usage: hands.mjs validate|discover|drift|keep|plan|apply|export|control-check|control-update  (see the header of this file)');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
