@@ -1,10 +1,10 @@
 {
-  "version": "0.48.0",
-  "commit": "c6ba2c429449ec8dbb1d079e6301cd08e6eb2fc0",
+  "version": "0.48.1",
+  "commit": "5ae7101fa882d5846e5c21a9a5cdb82a81252ba8",
   "source": "https://github.com/obidex/harness-kit",
   "previous": {
-    "version": "0.47.1",
-    "commit": "94a97886ddc0388ac3dda9e3b49842041bdce34a"
+    "version": "0.48.0",
+    "commit": "c6ba2c429449ec8dbb1d079e6301cd08e6eb2fc0"
   },
   "files": {
     ".claude/skills/correct/SKILL.md": "4c48ebc26ad7b80666466e7899556b0a0b5a29b28e8965242dc4f72f529e00e1",
@@ -12,7 +12,7 @@
     ".github/workflows/harness-audit.yml": "7df5810a40741dbf432873f269428af0b0c08064f245ed36f8dda244a4e377b4",
     ".github/workflows/harness-guard.yml": "b4b6c247a2e1fe61d7efcf99f8b67b98d36d91baa53d8a39428a244df4431f0a",
     ".github/workflows/harness-inbox.yml": "5387b08a3d522f3dfdfbc9cde2d419ddec45bb7841708b3a3f60460eda022a16",
-    ".github/workflows/harness-review.yml": "979f2c61c9ad0ca6de64d6b23e2ab058da45bac499cf3efa18caa126145e7111",
+    ".github/workflows/harness-review.yml": "3985204f0182ac72d4f906fa8dc37f49c943c6c7fbff2e8cb00c2790428b90a4",
     ".github/workflows/harness-scrub.yml": "4d92766ef53ed2f40ed797cf49657212d63c27992e20925a0848327d80ad71cc",
     ".github/workflows/harness-stale.yml": "f0e25461df3394584f9cbf343b78c3bec63eea2654f935fdf828fa4ad8964aac",
     ".github/workflows/harness-wake.yml": "00e18ccbb33b87036a7b7e5dce22fc4b8a0d82d345a7a77d4d19d9bca68d9f41",
@@ -38,7 +38,7 @@
     ".harness/profile.schema.json": "55076785ce9fc12e7cf69d48e1cd20f51d9df5dab0d0e6c668c596649984e697",
     ".harness/project-specific.md": "0a1c4585385dbb7d302ba878870a53e2e0c91e810756c490ee13819757886a67",
     ".harness/README.md": "f243482ece28acffdff695b3e81e01585e2f2472248670147da133b533f9a6af",
-    ".harness/review.md": "4c5317d98918eb1644be222de5319509c2d7f4a0bfede82c5d8118602ea99ee6",
+    ".harness/review.md": "665daf0bfeb5334733dc334eefb8c02e22beb80cedb366b2078b20998d1a8315",
     ".harness/settings.schema.json": "c8f1beeb6f41dea96b8e8f2dc853eb0fd42fe134d7473d1df9c99ad49f0056b0",
     ".harness/standing-approvals.md": "be7d28aeb7b05ba7329d7784b252216364de5758a9a92497601062b9a624e8eb",
     ".harness/tools/actions.mjs": "20ba249e3404292e6affd25541765b738e429d3cdd2b76a7f4e906d71fddc1fc",
@@ -55,11 +55,11 @@
     ".harness/tools/metrics.mjs": "73911fcdd22031e41a2aae9d2b43d822fb3ce0210ec9e3ecaef93c0309aaf9dc",
     ".harness/tools/notify.mjs": "f85a7f865ebe796303c99550db84c285eda6bab76dee47c05cc5170832618eaa",
     ".harness/tools/panel.mjs": "8216a7f49d41d6f0794cda2a17aafcd622559f71e94106ea3b7e772fc13a8324",
-    ".harness/tools/review.mjs": "f131ae8fb767327c473834ec18a3bf57c72fe8970b2f30dc1e2a36900d3f8622",
+    ".harness/tools/review.mjs": "16adbaabd40254d371a6217ccf24be1022207312804621161681f391a30b7d46",
     ".harness/tools/scrub.mjs": "1a43d2432ea4a84b5539ed2fa4fcfdc794467f5b163cc3e3d1528a8a6ee5330f",
     ".harness/tools/stale.mjs": "96db32ea9facf9039bb7a826c6fa6861c915cc731781c280476ed18ff152d257",
     ".harness/tools/wake.mjs": "cf8f4fff7f345f30315ac90b4b7cd70329fa3dda828554f1ce61a80bd0664d4d",
-    ".harness/VERSION": "aff9ddc2135efcf30e7d35185a1021bb6ce6c87692431ae712b49482a43dd6ae",
+    ".harness/VERSION": "abf6e6e1886aa5496ae513cdcffbe669dc21180249c383f5ddc3118633fb0f32",
     ".harness/wake.md": "04931c482fb007938f31ea9b6d80ea7767dce747ac996a57dcf4866e48770723"
   }
 }

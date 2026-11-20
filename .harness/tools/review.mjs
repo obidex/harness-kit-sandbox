@@ -148,7 +148,10 @@ const GOOD = ['success', 'neutral', 'skipped'];
 /** green, pending or red for a commit: its check runs (this job's own left out), its statuses, and
  *  each check the profile requires, which must be there and green. */
 export function checks(runs, status, required = []) {
-  const mine = runs.filter((r) => r.name !== MARK);
+  const all = runs.filter((r) => r.name !== MARK);
+  // a run cancelled because a newer run of the same check replaced it (a workflow's own concurrency,
+  // on a quick second push or an edited description) says nothing about the commit: the newer one does
+  const mine = all.filter((r) => !(r.conclusion === 'cancelled' && all.some((o) => o.name === r.name && o.id > r.id)));
   const states = (status?.statuses || []).map((s) => s.state);
   if (mine.some((r) => r.status === 'completed' && !GOOD.includes(r.conclusion)) || states.some((s) => s === 'failure' || s === 'error')) return 'red';
   if (mine.some((r) => r.status !== 'completed') || states.includes('pending')) return 'pending';

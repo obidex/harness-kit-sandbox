@@ -25,7 +25,7 @@ name: harness-review
 
 on:
   workflow_run:
-    workflows: [harness-guard, harness-audit, ci, CI, check, checks, test, tests, build, hands-check]
+    workflows: [harness-guard, harness-audit, harness-scrub, ci, CI, check, checks, test, tests, build, hands-check]
     types: [completed]
 
 permissions:

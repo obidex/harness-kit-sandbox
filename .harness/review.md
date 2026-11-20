@@ -80,7 +80,8 @@ Runner minutes: one short job per finished pull-request workflow the file lists,
 ## When the checks are "green"
 
 Every check run and commit status on the head commit is finished and good, and each of the
-profile's `branches.required_checks` has reported. The job starts when a workflow named in the
+profile's `branches.required_checks` has reported. A run cancelled because a newer run of the same
+check replaced it is left out; the newer run decides. The job starts when a workflow named in the
 file's `workflows:` list finishes (GitHub allows no wildcard there). A project whose last
 pull-request workflow has another name is reviewed only when that workflow finishes within the
 90-second wait; adding a name is a kit change.
