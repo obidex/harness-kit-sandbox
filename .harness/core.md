@@ -50,9 +50,9 @@
   next card and admits only fix PRs.
 - **C14 Failure handling.** A refused command or safety refusal is a finding: report the exact
   command; never retry, reword or route around it. A missing repo, secret, connector or tool: name
-  it and stop; never mock, substitute or guess. Three failures in a row on one step, or the turn
-  budget → STOPPED with what is complete. `Found:` names what went wrong, its class (context ·
-  constraint · verification · planning) and its prevention (C19).
+  it; never mock, guess or swap in another; finish what does not need it. Three failures in a
+  row on one step, or the turn budget → STOPPED with what is complete. `Found:` names what went
+  wrong, its class (context · constraint · verification · planning) and its prevention (C19).
 - **C15 No silent stall.** Green unmerged PRs, conflicted PRs and quiet cards are listed on a
   schedule; each resumes or is STOPPED.
 
@@ -62,7 +62,7 @@
   the check that proved it, with run link or output) `· FINDINGS · NEXT`.
 - **C17 One home per fact.** Decisions are append-only: supersede, never edit. Volatile state lives
   only in the state file. Generated references are regenerated, never hand-edited. Always-loaded
-  text is capped and must not grow.
+  text is capped; a cap rises only by the owner's decision.
 - **C18 Ratchet.** A correction lands in its narrowest home (the card, a module rule, a
   test) and goes global only when it recurs. The owner's correction to how work runs is
   recorded as a decision the same day; chat is never the record.
@@ -74,13 +74,13 @@
   patterns in the relevant existing code, preserve those patterns unless the current task explicitly
   requests a change. Never override security requirements, explicit prohibitions, the owner's numbered
   rules and decisions, or documented migration plans. Report each behavior-changing conflict in your
-  final reply and file it as a card.
+  final reply and file it as a card. A clean-up card (its kit template) may change patterns on purpose.
 
 ## Finishing and waiting
 
-- **C20 Finish line.** A coordinator finishes the approved initiative or batch with its fixes,
-  reviews, merges and dependent cards; no improvement rounds after it. Next items start by board
-  order when a slot opens; owner-ready, Ideas and Later items wait.
+- **C20 Finish line.** A coordinator finishes the approved batch with its fixes, reviews, merges and
+  dependent cards; no improvement rounds after. Ready cards start now, a thread each (`bulk.md`);
+  one waits only on a running card's files or tables, or the owner.
 - **C21 Full handoff.** A CI result is read (C25) → check the current commit and its required review
   (re-review after later commits) → clear the gate → merge → close the card → tell the coordinator →
   continue the batch.
@@ -99,3 +99,16 @@
   and comments since last turn; new findings first. A wake reads the real state, then continues or
   sets one more; 3 per wait, then STOPPED with why. Merge decisions read the PR,
   never another thread's message alone.
+
+## Finishing work
+
+- **C27 Finishing work.** Anthropic's text below, unchanged (K049). It loosens no safety refusal
+  (C14), reserved owner step (O01) or real-data tap (O19).
+
+> Please avoid stopping while you still owe work the user asked for. Be persistent and do not stop unless needed.
+>
+> While status notes are welcome, as is clarifying with the user on open decisions, carry on with work that does not depend on the user's answer without unnecessary stops.
+>
+> If you notice yourself inviting the user to redirect you or offering to wait, instead proceed on the next part of the task. You may meet ordinary obstacles like errors, timeouts, locked files, empty results or failing tools. Diagnose them first, and when they are not real blockers, work through them with the access you have (wait and retry, fix the request, use another tool or source) rather than stopping unnecessarily.
+>
+> If someone clearly decided something is a hard blocker, such as a file marked not to be touched, access that was intentionally withheld, or a safety guardrail, leave it alone, say plainly what you found, and look for another safe way to finish the task. Stopping before the task is complete is very rarely merited, as in when the task can't move forward without user input, or where the blocker is deliberate and should not be worked past. This does not override the need for confirmation on risky or destructive actions.

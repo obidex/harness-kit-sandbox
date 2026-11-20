@@ -47,7 +47,8 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
 ## Caps, and how everything ends (every timer capped)
 
 **Counts.**
-- Each repository gets at most 8 runs in any 24 hours, and each issue at most 3.
+- Each repository gets at most 48 runs in any 24 hours, and each issue at most 12 (8 and 3 until K051).
+  The caps stop a loop; they are set well above a full day of parallel work, so they never throttle it.
 - Every count reads the job's own receipt comments, from the whole repository and 30 days back.
   If that listing is cut off, the job fails closed. The job never edits its own comments, so an
   edited one counts as a run whatever it says now.
@@ -57,7 +58,7 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
 
 | Label | Set on | When | Lifted by |
 | --- | --- | --- | --- |
-| `wake-stopped` | an issue | It started 9 runs in 30 days, or 3 backstop runs in a row for the same work changed nothing. The job removes its `wake` label, posts "needs a person" on it, and turns one run red. | A person removing the label |
+| `wake-stopped` | an issue | It started 36 runs in 30 days, or 3 backstop runs in a row for the same work changed nothing. The job removes its `wake` label, posts "needs a person" on it, and turns one run red. | A person removing the label |
 | `wake-paused` | the STATE issue | 3 failed starts in a row (an expired token, an outage); 8 runs in a row started only by hand-offs, with no outside wake between; or 3 backstop runs for a run that keeps dying. One red run. | A run started by hand (Actions → harness-wake → Run workflow) |
 | `backstop-off` | the STATE issue | 3 empty backstop days in a row | The next run of any kind |
 
@@ -118,7 +119,7 @@ Until the variable is set, every `harness-wake` job is skipped.
   That is about one GitHub-hosted minute each on a private repository without a self-hosted `RUNNER`,
   and none with one or on a public repository.
 - **Claude usage:** each run started is one Claude Code session on the owner's subscription. That is
-  usage, never money, and at most 8 a day per repository.
+  usage, never money, and at most 48 a day per repository.
 - **Rate limits:** the `/fire` limits are 30 fires an hour per task and 100 an hour per account.
   They are far above the caps.
 

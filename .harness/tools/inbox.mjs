@@ -105,12 +105,17 @@ export function accessHint(path) {
   return `. The session's GitHub access does not reach ${repo}: in a cloud session attach it first (add_repo ${repo} with access "push"), then run the same command again; elsewhere set GH_TOKEN to a token that can write its issues`;
 }
 
-/** Every inbox issue of the repository, open and closed, as { number, state, url, fields }. */
+/** Who may file a request: a person with write access or an App, never a stranger on a public
+ *  repository (roadmap #125 A5). An issue form can set the `inbox` label for anyone. */
+export const TRUSTED = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+export const trusted = (i) => TRUSTED.includes(i?.author_association) || i?.user?.type === 'Bot';
+
+/** Every inbox issue of the repository, open and closed, filed by a trusted author, as { number, state, url, fields }. */
 export async function requests(repo) {
   const out = [];
   for (let page = 1; page < 50; page++) {
     const l = await api('GET', `/repos/${repo}/issues?labels=${LABEL}&state=all&per_page=100&page=${page}`);
-    for (const i of l) { const fields = parse(i.body); if (fields && !i.pull_request) out.push({ number: i.number, state: i.state, url: i.html_url, fields }); }
+    for (const i of l) { const fields = parse(i.body); if (fields && !i.pull_request && trusted(i)) out.push({ number: i.number, state: i.state, url: i.html_url, fields }); }
     if (l.length < 100) break;
   }
   return out;
@@ -397,7 +402,7 @@ async function main() {
     // The issue itself, read directly: the label listing lags a new issue by seconds, and this job
     // starts the moment the issue is filed. The listing only says whether an earlier issue has its ID.
     const i = await api('GET', `/repos/${repo}/issues/${n}`);
-    const f = !i.pull_request && (i.labels || []).some((l) => (l.name ?? l) === LABEL) ? parse(i.body) : null;
+    const f = !i.pull_request && trusted(i) && (i.labels || []).some((l) => (l.name ?? l) === LABEL) ? parse(i.body) : null;
     const mine = f && { number: n, state: i.state, url: i.html_url, fields: f };
     const first = mine && canonical(await requests(repo)).find((x) => x.fields.id === f.id);
     // only a queued request wakes anyone: a request already picked up or done never re-runs the AI

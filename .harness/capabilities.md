@@ -89,6 +89,10 @@
   code never reaches a runner holding secrets.
 - **HI04 Menu over shell.** Routine host maintenance runs through a guarded, versioned operations
   workflow, not ad-hoc commands.
+- **HI05 An agent on a server is proposed on a card.** An AI agent runs on a machine the project
+  owns only where the owner has lifted the ban for that machine by name, and then only as its own
+  card proposes: the uninterrupted work that needs it, what it can reach, its cap, how it is removed.
+  Nothing is installed, signed in or started there before he approves that card.
 
 ## Records
 
@@ -123,3 +127,4 @@
 | HI02 | capability host/infra | No host details in tracked files, issues or PRs. | ERP AGENTS §5 · D235 | script: host-pattern scan of tracked files. |
 | HI03 | capability host/infra with self-hosted runners | Runner guards admit only trusted refs. | ERP runbooks/automations · D269, D279; WEB db-backup workflow · W236 | judgment: read the runner guard; UNKNOWN if the host is unreadable. |
 | HI04 | capability host/infra | Routine maintenance runs through the ops workflow. | ERP ops workflow · D267, D269 | judgment: sample recent host changes. |
+| HI05 | capability host/infra, an AI agent is to run on a project's own machine | The owner lifted the ban for that machine by name; a card proposed the agent (the work, its reach, its cap, its removal) and he approved it before anything was installed, signed in or started. No agent runs on a machine he has not named. | K051 (owner 20 Nov 2026: "Claude on the VPS is no longer forbidden. Propose it on a card when uninterrupted work needs it"); before it, K016 item 3 | judgment: each machine that runs an agent has the owner's lifting word and an approved card dated before the install. |

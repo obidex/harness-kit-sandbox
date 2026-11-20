@@ -59,6 +59,18 @@ and appends the rest, each on its own line at column 1, to the update or rollbac
 PR for that version is already open without them, it edits that PR's body, so the guard re-runs. The line is the project's standing
 authorization: record the decision that grants it in the project, not in the kit.
 
+## The control repository's own update
+
+The control repository pins a kit version (`HANDS_KIT_VERSION`) and runs byte copies of that kit's
+`templates/hands/` workflows. `hands-update` moves both in one PR (K053): the pinned kit's
+`hands.mjs control-update` copies the target release's templates into `.github/workflows/`, removes
+one that release dropped, and lists exactly what the PR stages; any other workflow there is the
+repository's own and is never touched. Until 0.47.0 only the pin moved and the copies went stale
+until a session copied them by hand. `hands-check` (`control-check`) now fails a copy that differs
+from the pinned kit's template or is missing, so a control workflow changes only in the kit. A
+Dependabot PR against a copy therefore fails its check by design: the pin moves in the kit's
+templates, and the next update carries it.
+
 ## Kit update PRs keep themselves current
 
 Under a strict required-checks rule a PR falls "behind" whenever its base branch moves, and GitHub's
@@ -106,7 +118,7 @@ repositories and K repositories that pin the kit:
 | `hands-alerts` | control repo | dispatch; hourly 08:00-22:00 Damascus only with `ALERTS_TICK=on` | 1 | ~1 per dispatch; ~450 with the tick on |
 | `hands-answer` | control repo | dispatch by the panel host, one per owner answer | 1 | ~1 per answer, plus the card's own scrub runs for the answer and wake comments |
 | `hands-explain` | control repo | dispatch by the panel host, one per Explain press; at most 3 requests a day per wake channel | 1 | ~1 per press, at most ~90 |
-| `hands-check` | control repo | each PR push there | 1 | ~1 per PR push |
+| `hands-check` | control repo | each PR push there; each merge to main | 1 | ~1 per PR push, ~1 per merge |
 | `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 (a fork's PR always hosted) |
 | `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request; 0 with a self-hosted `RUNNER` |
 | `harness-scrub` | each project | every issue, PR, comment and review posted or edited | 1 | ~1 per event: the largest cost on a busy private repo (~700+ events a month on one measured project); 0 with a self-hosted `RUNNER` |

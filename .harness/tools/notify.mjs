@@ -24,12 +24,13 @@
 //                                               together go as ONE message; resolve edits it to ✅
 //   node .harness/tools/notify.mjs outage --key <k> --system <name> [--who <name>]
 //                                               ⚠️ one loud message; resolve edits the same message to ✅
-//   node .harness/tools/notify.mjs good_news --text <t> [--key <k>] [--summary-only]
-//                                               🎉 one line in "Good news" (or only in the evening summary)
+//   node .harness/tools/notify.mjs good_news --text <t> [--key <k>]
+//                                               🎉 one line kept for the weekly brief (K048): never sent on its own
 //   node .harness/tools/notify.mjs ops --key <k> --text <t> [--link <url>] [--system <name>] [--who <name>]
 //                                               a technical alert: the Ops board (ALERTS_OPS_BOARD), never Telegram
-//   node .harness/tools/notify.mjs summary [--stores <spec,…>] [--progress <line>]… [--dry-run]
-//                                               ☀️ the evening summary in "Summary"; nothing on a day with nothing to say
+//   node .harness/tools/notify.mjs brief [--stores <spec,…>] [--dry-run] [--now]
+//                                               🗓 the one weekly brief in "Summary" (Saturday 10:00 Damascus; ALERTS_BRIEF_DAY,
+//                                               ALERTS_BRIEF_HOUR): good news (at most 3) and what needs him; none in a quiet week
 //   node .harness/tools/notify.mjs board        find or open the Ops board issue and print its link
 //   node .harness/tools/notify.mjs note --text <t> [--link <url>]   one line on the Ops board's log (no row)
 //   node .harness/tools/notify.mjs retire --topics kit,ops,daily     close topics the owner no longer keeps (K039)
@@ -195,7 +196,7 @@ function fileStore(path) {
   };
   return {
     name: `file:${path}`,
-    news: true, // keeps good-news and summary records for the evening summary
+    news: true, // keeps good-news and summary records for the weekly brief
     hold: 10 * 60e3, // a host checks every few minutes and ticks itself: a flap is never sent
     async locked(fn) {
       mkdirSync(dirname(path), { recursive: true });
@@ -265,7 +266,9 @@ export function store(spec = env('ALERTS_STORE')) {
 const headline = (inc) => `${inc.outage ? '🚨 OUTAGE' : inc.topic === 'needs' ? '🔴 NEEDS YOU' : '🔴 PROBLEM'} · ${one(inc.text)}${inc.link ? `\n${inc.link}` : ''}\nYou: ${youOf(inc)}`;
 const fixed = (inc, t) => `✅ Fixed after ${age(t - inc.opened)}`;
 /** A held problem is due once it has been open the store's hold; an outage never waits. */
-const due = (st, inc, t) => inc.outage || t - inc.opened >= holdOf(st);
+// K048: a Needs you waits 24 h (ALERTS_NEEDS_HOLD_HOURS) before it interrupts him; until then the weekly brief lists it
+const needsHold = () => (env('ALERTS_NEEDS_HOLD_HOURS') !== undefined ? Number(env('ALERTS_NEEDS_HOLD_HOURS')) : 24) * HOUR;
+const due = (st, inc, t) => inc.outage || t - inc.opened >= Math.max(holdOf(st), inc.kind === 'needs_you' ? needsHold() : 0);
 
 /** Messages sent in the last hour to a topic, from what the store remembers. */
 const sentLastHour = (list, topic, t) => list.filter((i) => i.topic === topic && i.sentAt && t - i.sentAt < HOUR).length
@@ -389,8 +392,8 @@ export async function hush(st, key, { ack, mutedUntil } = {}) {
 const hushed = (inc, t) => !!inc.ack || (inc.mutedUntil && inc.mutedUntil > t);
 
 // --- kinds (K037, S-034): the owner's group gets only what matters to him; technical alerts go to the Ops board ---
-export const KINDS = ['needs_you', 'outage', 'good_news', 'summary', 'ops'];
-const KIND_TOPIC = { needs_you: 'needs', outage: 'needs', good_news: 'good', summary: 'summary' };
+export const KINDS = ['needs_you', 'outage', 'good_news', 'ops'];
+const KIND_TOPIC = { needs_you: 'needs', outage: 'needs', good_news: 'good' };
 const hhmm = (t) => localTime(t).slice(11);
 /** The Ops board, or null; a malformed ALERTS_OPS_BOARD is logged, never a stop for the rest of a tick. */
 const boardOrNull = () => { try { return opsBoard(); } catch (e) { console.error(`notify: ${e.message}`); return null; } };
@@ -407,14 +410,9 @@ export const TEMPLATES = {
   outage: (i) => [`⚠️ ${i.system} is down since ${hhmm(i.opened)}`, `Who: ${i.who}`, 'Do: nothing', 'When: now'].join('\n'),
   outage_fixed: (i, t) => [`✅ ${i.system} was down ${age(t - i.opened)}. Fixed.`, 'Do: nothing'].join('\n'),
   good_news: (i) => [`🎉 ${i.text}`, 'Do: nothing'].join('\n'),
-  // the evening summary in the same five lines: what happened today, who, his one action (or nothing)
-  summary: ({ date, live, progress, needs, board }) => [
-    `☀️ ${date}: ${[live.length ? `went live: ${live.map((x) => x.replace(/[.!]$/, '')).join('; ')}` : '', progress.length ? `in progress: ${progress.join('; ')}` : ''].filter(Boolean).join('. ') || 'nothing new'}.`,
-    `Who: ${needs.length ? 'you' : 'Platform'}`,
-    `Do: ${needs.length ? `${needs[0]}${needs.length > 1 ? ` (and ${needs.length - 1} more in Needs you)` : ''}` : 'nothing'}`,
-    ...(needs.length ? ['Where: the Needs you topic'] : board ? [`Where: ${board}`] : []),
-    ...(needs.length ? ['When: today'] : []),
-  ].join('\n'),
+  // the weekly brief (K048): good news (at most 3 lines), then what needs him, each with its owner and place; no status, counts or links
+  brief: ({ date, good, needs }) => [`🗓 Weekly brief · ${date}`, ...good.slice(0, 3).map((x) => `🎉 ${x}`),
+    ...(needs.length ? ['Needs you:', ...needs.map((x, n) => `${n + 1}) ${x.what} Do: ${x.step} (${x.where})`)] : ['Nothing needs you.'])].join('\n'),
 };
 /** When an owner step is due, soonest first. */
 export const WHEN = ['now', 'today', 'this week'];
@@ -460,6 +458,7 @@ export const plainProblems = (text) => {
 const mustBePlain = (kind, text) => {
   const p = plainProblems(text);
   if (p.length) throw new Error(`${kind}: the owner's message carries ${p.join(', ')}: say it in business words (the technical part goes to the Ops board)`);
+  if (kind === 'brief') return; // the brief has its own shape
   const f = formatProblems(text);
   if (f.length) throw new Error(`${kind}: the owner's message is not in his format (${f.join('; ')}): 🛑 what / Who: / Do: / Where: / When:`);
 };
@@ -567,7 +566,7 @@ async function deliverNeeds(st, tg, items, list, t, r) {
 /** Raise one kind (needs_you, outage, good_news, ops). A repeat of an open key sends nothing. */
 export async function raise(st, tg, o, board = opsBoard()) {
   const r = rules(), t = now(), kind = o.kind;
-  if (!KINDS.includes(kind) || kind === 'summary') throw new Error(`unknown kind "${kind}" (needs_you, outage, good_news, ops; the summary is its own command)`);
+  if (!KINDS.includes(kind)) throw new Error(`unknown kind "${kind}" (needs_you, outage, good_news, ops; the weekly brief is its own command)`);
   if (kind === 'good_news') return goodNews(st, tg, o, t);
   if (!o.key) throw new Error('--key is required');
   const inc = { key: o.key, kind, topic: KIND_TOPIC[kind] || null, opened: t, msg: null, count: 1, open: true, ...(o.link ? { link: o.link } : {}) };
@@ -617,51 +616,61 @@ export async function raise(st, tg, o, board = opsBoard()) {
   });
 }
 
-/** 🎉 one line; recorded (where the store keeps news) for the evening summary. One key goes out once. */
+/** 🎉 one line kept for the weekly brief (K048); never sent on its own. One key is kept once. */
 async function goodNews(st, tg, o, t) {
   if (!o.text) throw new Error('good_news needs --text: one line, what people can use now');
-  // only a store that keeps news (a host's file) can remember a key or hold a line for the summary
-  if (!st.news && (o.key || o.summaryOnly)) throw new Error(`good_news: ${st.name} keeps no news, so --key and --summary-only need a file store (send it from the host, or drop them)`);
+  // only a store that keeps news (a host's file) can hold a line for the brief
+  if (!st.news) throw new Error(`good_news: ${st.name} keeps no news, so the line would never reach the brief: send it from a host's file store`);
   const inc = { key: o.key || `good/${t}`, kind: 'good_news', topic: 'good', text: one(o.text), opened: t, closed: t, open: false, msg: null };
   inc.message = TEMPLATES.good_news(inc); mustBePlain('good_news', inc.message);
   return st.locked(async () => {
     if (o.key && (await st.list()).some((i) => i.kind === 'good_news' && i.key === o.key)) return { status: 'repeat', inc };
-    if (!o.summaryOnly) { if (!tg.ready) throw new Error('good_news: no bot token or chat id here'); inc.msg = await tg.send('good', inc.message, { t }); inc.sentAt = t; }
-    if (st.news) await st.save(inc);
-    return { status: o.summaryOnly ? 'kept for the summary' : 'sent', inc };
+    await st.save(inc);
+    return { status: 'kept for the brief', inc };
   });
 }
 
-/** ☀️ The evening summary, or null on a day with nothing to say (nothing went live, nothing in progress, nothing for him). */
-export async function summaryText(stores, { progress = [], board = opsBoard() } = {}, t = now()) {
-  const day = dayOf(t), live = [], needs = [];
+/** Is it the brief's hour: its day (ALERTS_BRIEF_DAY, default Sat) at or after its hour (ALERTS_BRIEF_HOUR, default 10), owner's time. */
+export function briefTime(t = now()) {
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(env('ALERTS_BRIEF_DAY', 'Sat'));
+  if (day < 0) throw new Error('ALERTS_BRIEF_DAY is Sun, Mon, Tue, Wed, Thu, Fri or Sat');
+  const local = localTime(t);
+  return new Date(`${local.slice(0, 10)}T00:00:00Z`).getUTCDay() === day && Number(local.slice(11, 13)) >= Number(env('ALERTS_BRIEF_HOUR', 10));
+}
+
+/** 🗓 The weekly brief text, or null in a week with no good news and nothing for him. Good news since the last brief (newest 3);
+ * what needs him: open Needs you not yet sent as its own message (a sent one is never copied here). */
+export async function briefText(stores, t = now()) {
+  const good = [], needs = [];
+  let last = 0;
   for (const st of stores) for (const i of await st.list()) {
-    if (i.kind === 'good_news' && dayOf(i.opened) === day) live.push(i.text);
-    if (i.kind === 'needs_you' && i.open && i.msg) needs.push(i.step);
+    if (i.kind === 'brief') last = Math.max(last, i.opened);
   }
-  const lines = progress.map(one).filter(Boolean);
-  if (!live.length && !lines.length && !needs.length) return null;
+  for (const st of stores) for (const i of await st.list()) {
+    if (i.kind === 'good_news' && i.opened > last) good.push(i);
+    if (i.kind === 'needs_you' && i.open && !i.msg) needs.push(i);
+  }
+  good.sort((a, b) => b.opened - a.opened); needs.sort((a, b) => a.opened - b.opened);
+  if (!good.length && !needs.length) return null;
   const date = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: rules().tz }).format(new Date(t));
-  let url = null;
-  if (board) try { url = await board.url(); } catch (e) { console.error(`notify: the Ops board link: ${e.message}`); }
-  const text = TEMPLATES.summary({ date, live, progress: lines, needs, board: url });
-  mustBePlain('summary', text);
+  const text = TEMPLATES.brief({ date, good: good.map((i) => i.text.replace(/[.!]$/, '') + '.'), needs });
+  mustBePlain('brief', text);
   return text;
 }
 
-/** Post the evening summary once a day (the first store that keeps news remembers it was sent). */
-export async function summary(stores, tg, o = {}) {
-  const t = now(), key = `summary/${dayOf(t)}`;
+/** Post the weekly brief once a week, at its hour (the first store that keeps news remembers it was sent). */
+export async function brief(stores, tg, o = {}) {
+  const t = now(), key = `brief/${dayOf(t)}`;
   const keep = stores.find((s) => s.news);
-  if (!keep) throw new Error('summary: none of the stores keeps news (a file store), so it could neither list good news nor send only once a day');
-  // checked and recorded under the store's lock: two runs at once still send one summary
+  if (!keep) throw new Error('brief: none of the stores keeps news (a file store), so it could neither list good news nor send only once a week');
+  if (!o.dryRun && !o.force && !briefTime(t)) return { status: 'not the brief hour' };
   return keep.locked(async () => {
     if ((await keep.list()).some((i) => i.key === key)) return { status: 'already sent today' };
-    const text = await summaryText(stores, o, t);
-    if (!text) return { status: 'nothing to say: no summary today' };
+    const text = await briefText(stores, t);
+    if (!text) return { status: 'nothing to say: no brief this week' };
     if (o.dryRun) return { status: 'dry run', text };
     await tg.send('summary', text, { t });
-    await keep.save({ key, kind: 'summary', opened: t, closed: t, open: false });
+    await keep.save({ key, kind: 'brief', opened: t, closed: t, open: false });
     return { status: 'sent', text };
   });
 }
@@ -692,7 +701,7 @@ export async function tick(st, tg, board = boardOrNull()) {
   const r = rules(), t = now(), quiet = isQuiet(t, r), did = [];
   await st.locked(async () => {
     const list = await st.list();
-    // a kind is never escalated or reminded ("Needs you" is already his; the summary lists what waits on him):
+    // a kind is never escalated or reminded ("Needs you" is already his; the weekly brief lists what waits on him):
     // the tick sends what was held or capped and retries the Ops board
     const batch = waitingNeeds(st, list, t);
     if (batch.length > 1 && await deliverNeeds(st, tg, batch, list, t, r)) for (const inc of batch) { await st.save(inc); did.push(`sent ${inc.key}${inc.batch ? ` (one message for ${inc.batch.length})` : ''}`); }
@@ -739,7 +748,7 @@ export async function digestText(stores, t = now()) {
   let opened = 0, resolved = 0, open = 0;
   for (const st of stores) {
     for (const i of await st.list()) {
-      if (i.kind === 'good_news' || i.kind === 'summary') continue; // the evening summary's, not a problem
+      if (i.kind === 'good_news' || i.kind === 'summary' || i.kind === 'brief') continue; // the weekly brief's, not a problem
       const where = i.url || i.link || '';
       if (i.open) { open++; lines.push(`🟠 open ${age(t - i.opened)} · ${one(i.text)}${i.escalated ? ' (escalated)' : ''}${i.maxSends && i.msg ? ` (alerted ${i.sends || 1} of ${i.maxSends})` : ''} ${where}`.trim()); }
       else if (t - i.closed < day) { resolved++; lines.push(`✅ resolved after ${age(i.closed - i.opened)} · ${one(i.text)}`); }
@@ -805,16 +814,17 @@ async function main(argv) {
       break;
     }
     case 'needs_you': case 'outage': case 'good_news': case 'ops': {
-      const r = await raise(store(), tg, { kind: cmd, key: opt('--key'), what: opt('--what'), step: opt('--step'), where: opt('--where'), when: opt('--when'), minutes: opt('--minutes'), link: opt('--link'), system: opt('--system'), who: opt('--who'), text: opt('--text'), summaryOnly: flag('--summary-only') });
+      const r = await raise(store(), tg, { kind: cmd, key: opt('--key'), what: opt('--what'), step: opt('--step'), where: opt('--where'), when: opt('--when'), minutes: opt('--minutes'), link: opt('--link'), system: opt('--system'), who: opt('--who'), text: opt('--text') });
       say(`${cmd} ${r.status} ${r.inc.key}`);
       if (r.status === 'queued' && env('ALERTS_REQUIRE_SEND') === '1') { console.error('notify: no bot token or chat id here, so it was recorded but not sent'); process.exit(2); }
       break;
     }
-    case 'summary': {
-      const r = await summary(storesOf(), tg, { progress: optAll('--progress'), dryRun: flag('--dry-run') });
-      say(`summary: ${r.status}`); if (r.text && flag('--dry-run')) console.log(r.text);
+    case 'brief': {
+      const r = await brief(storesOf(), tg, { dryRun: flag('--dry-run'), force: flag('--now') });
+      say(`brief: ${r.status}`); if (r.text && flag('--dry-run')) console.log(r.text);
       break;
     }
+    case 'summary': say('summary: retired (K048): the weekly brief replaces it; nothing posted'); break;
     case 'board': {
       const b = opsBoard(); if (!b) throw new Error('ALERTS_OPS_BOARD is not set (github:<owner/name>)');
       // --open: open it if there is none and pin it (the bot or App does this once, before any host writes to it)
@@ -823,10 +833,10 @@ async function main(argv) {
     }
     case 'resolve': { const r = await resolveKey(store(), tg, { key: opt('--key'), text: opt('--text'), quiet: flag('--quiet') }); say(`${r.status} ${opt('--key')}`); break; }
     case 'tick': { for (const st of storesOf()) for (const l of await tick(st, tg)) say(`${st.name}: ${l}`); break; }
-    case 'digest': { // retired (K039): technical, so it is no longer posted; the evening summary and the Ops board replace it
+    case 'digest': { // retired (K039): technical, so it is no longer posted; the weekly brief and the Ops board replace it
       const text = await digestText(storesOf());
       if (flag('--dry-run')) console.log(text);
-      say('the daily digest is retired (K039): nothing posted; the evening summary and the Ops board replace it');
+      say('the daily digest is retired (K039): nothing posted; the weekly brief and the Ops board replace it');
       break;
     }
     case 'note': { await note(opsBoard(), opt('--text'), opt('--link')); say('noted on the Ops board'); break; }

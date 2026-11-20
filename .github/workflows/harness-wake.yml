@@ -6,8 +6,8 @@
 # session link as the receipt. When a run removes its claim, a still-queued wake starts the next run.
 # Once a day the backstop starts a run only if a script sees work (a queued wake, a dead run's claim,
 # C15 stale work); it stops after 3 empty days, or after 3 runs for the same work with nothing moved
-# (one red exception). Caps (wake.mjs): 8 runs a day per repository, 3 a day per issue, counted from
-# this job's own receipts. Stops that hold until a person lifts them: an issue that started 9 runs in
+# (one red exception). Caps (wake.mjs): 48 runs a day per repository, 12 a day per issue, counted from
+# this job's own receipts. Stops that hold until a person lifts them: an issue that started 36 runs in
 # 30 days or made no progress (`wake-stopped`); 3 failed starts or 8 hand-offs in a row (`wake-paused`).
 # Inert until the project sets the Actions variable WAKE_ROUTINE_URL and the secret WAKE_ROUTINE_TOKEN
 # (.harness/wake.md "Setup"): with no URL every job is skipped and costs nothing.
@@ -59,14 +59,15 @@ jobs:
       checks: read
       statuses: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: .harness/tools
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+          package-manager-cache: false
       - name: Start a coordinator run if this event calls for one
         env:
           GH_TOKEN: ${{ github.token }}
