@@ -52,6 +52,7 @@
 //   day; its RESOLVED is a reply to the original message (and to the escalation, if any).
 // - Dedupe: one open problem per key; a repeat only counts. Caps: at most 5 new messages per topic per
 //   hour (10 in "Needs you"); the rest wait for the next tick. An outage is never capped.
+//   One "Needs you" message carries at most 3 steps (O02); the rest follow once those are sorted or an hour on.
 // - Hold: in a host's file store a problem is sent only once it is still open 10 minutes after it was
 //   first seen (ALERTS_HOLD_MINUTES), by a later `problem` call or `tick`; one resolved sooner was never
 //   sent and sends nothing. A GitHub store (ticked daily) and an outage send at once.
@@ -298,7 +299,7 @@ async function sendRepeat(tg, inc, t, r) {
   // an acknowledged or muted problem (control panel, K025) is never reminded
   if (!tg.ready || !inc.msg || sends >= inc.maxSends || inc.sentDay === dayOf(t, r.tz) || t - (inc.remindedAt || inc.sentAt || 0) < REPEAT_GAP || hushed(inc, t)) return false;
   const n = sends + 1, last = n >= inc.maxSends;
-  try { await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} (alert ${n} of ${inc.maxSends}${last ? ', the last: from now on only a line in the daily digest until it clears' : ''}) · ${one(inc.text)}`, { reply: inc.msg, t }); }
+  try { await tg.send(inc.topic, `🟠 STILL OPEN after ${age(t - inc.opened)} (alert ${n} of ${inc.maxSends}${last ? ', the last: nothing more is sent until it is resolved' : ''}) · ${one(inc.text)}`, { reply: inc.msg, t }); }
   catch (e) { if (topicClosed(e)) return toOps(inc, t); throw e; }
   inc.sends = n; inc.sentDay = dayOf(t, r.tz); inc.remindedAt = t;
   return true;
@@ -401,10 +402,11 @@ const boardOrNull = () => { try { return opsBoard(); } catch (e) { console.error
 export const TEMPLATES = {
   needs_you: (i) => [`🛑 ${i.what}`, 'Who: you', `Do: ${i.step}${i.minutes ? ` (about ${i.minutes} min)` : ''}`,
     `Where: ${i.where}${i.link ? ` ${i.link}` : ''}`, `When: ${i.when}`].join('\n'),
-  // several due together: ONE message (owner, roadmap #59, 8 Nov 2026), each step numbered in its Do line
+  // several due together: ONE message (owner, roadmap #59, 8 Nov 2026), each step numbered in its Do line,
+  // each place with its own link
   needs_you_batch: (list) => [`🛑 ${list.length} things need you: ${list.map((i) => i.what.replace(/[.!]$/, '')).join('; ')}.`, 'Who: you',
     `Do: ${list.map((i, n) => `${n + 1}) ${i.step}${i.minutes ? ` (about ${i.minutes} min)` : ''}`).join(' ')}`,
-    `Where: ${[...new Set(list.map((i) => i.where))].join('; ')}`, `When: ${WHEN.find((w) => list.some((i) => i.when === w))}`].join('\n'),
+    `Where: ${[...new Set(list.map((i) => `${i.where}${i.link ? ` ${i.link}` : ''}`))].join('; ')}`, `When: ${WHEN.find((w) => list.some((i) => i.when === w))}`].join('\n'),
   needs_you_done: (i) => [`✅ Sorted: ${i.what}`, 'Do: nothing'].join('\n'),
   needs_you_batch_done: (list) => [`✅ Sorted: ${list.length} things that needed you`, 'Do: nothing'].join('\n'),
   outage: (i) => [`⚠️ ${i.system} is down since ${hhmm(i.opened)}`, `Who: ${i.who}`, 'Do: nothing', 'When: now'].join('\n'),
@@ -535,19 +537,29 @@ async function boardSync(board, inc, t) {
 async function deliver(st, tg, board, inc, list, t, r) {
   if (inc.kind === 'ops') return boardSync(board, inc, t);
   await boardSync(board, inc, t); // an outage's board row does not wait for Telegram
-  if (!tg.ready || capped(list, inc, t, r)) return false;
+  if (!tg.ready || capped(list, inc, t, r) || (inc.kind === 'needs_you' && batchFull(list, t))) return false;
   inc.msg = await tg.send(inc.topic, inc.message, { outage: inc.outage, t }); inc.sentAt = t;
   return true;
 }
 const delivered = (inc) => (inc.kind === 'ops' ? !!inc.boarded : !!inc.msg);
 
+/** The most owner steps one message carries (O02: at most a few), and how long the rest wait behind a
+ * full message that is still open before the next one goes out. */
+export const BATCH_MAX = 3;
+const BATCH_GAP = 3600e3;
+const batchFull = (list, t) => list.some((i) => i.kind === 'needs_you' && i.open && (i.batch || []).length >= BATCH_MAX && t - (i.sentAt || i.batchedAt || 0) < BATCH_GAP);
 /** Open Needs you items already due and not yet sent. */
 const waitingNeeds = (st, list, t) => list.filter((i) => i.kind === 'needs_you' && i.open && !i.msg && due(st, i, t));
 /** Several Needs you due together go as ONE message (owner, roadmap #59): each remembers it and the
  * batch, so resolving one stays silent until the last of them, which edits the message to ✅. */
-async function deliverNeeds(st, tg, items, list, t, r) {
+async function deliverNeeds(st, tg, all, list, t, r) {
+  if (batchFull(list, t)) return false;
+  // at most BATCH_MAX steps in one message (O02): the most urgent, then the oldest; the rest stay unsent
+  const urgency = (i) => { const w = WHEN.indexOf(i.when); return w < 0 ? WHEN.length : w; };
+  const oldest = [...all].sort((a, b) => a.opened - b.opened);
+  const picked = new Set([...oldest].sort((a, b) => urgency(a) - urgency(b)).slice(0, BATCH_MAX));
+  const items = oldest.filter((i) => picked.has(i));
   if (items.length === 1) return deliver(st, tg, null, items[0], list, t, r);
-  items.sort((a, b) => a.opened - b.opened);
   if (!tg.ready || capped(list, items[0], t, r)) return false;
   const text = TEMPLATES.needs_you_batch(items);
   // each item passed rule C on its own; a joined text that reads otherwise (quotes pairing across items)
@@ -610,6 +622,7 @@ export async function raise(st, tg, o, board = opsBoard()) {
     const others = kind === 'needs_you' && now0 ? waitingNeeds(st, list, t).filter((i) => i.key !== inc.key) : [];
     if (now0) try { sent = others.length ? await deliverNeeds(st, tg, [inc, ...others], list, t, r) : await deliver(st, tg, board, inc, list, t, r); } catch (e) { err = e; }
     for (const o2 of others) if (o2.msg) await st.save(o2);
+    if (others.length && !inc.msg) sent = false; // a full message of more urgent steps went without this one
     await st.save(inc);
     if (err) throw err;
     return { status: sent ? 'sent' : !now0 ? 'held' : kind === 'ops' && !board ? 'recorded' : kind === 'ops' || tg.ready ? 'capped' : 'queued', inc };
@@ -704,7 +717,7 @@ export async function tick(st, tg, board = boardOrNull()) {
     // a kind is never escalated or reminded ("Needs you" is already his; the weekly brief lists what waits on him):
     // the tick sends what was held or capped and retries the Ops board
     const batch = waitingNeeds(st, list, t);
-    if (batch.length > 1 && await deliverNeeds(st, tg, batch, list, t, r)) for (const inc of batch) { await st.save(inc); did.push(`sent ${inc.key}${inc.batch ? ` (one message for ${inc.batch.length})` : ''}`); }
+    if (batch.length > 1 && await deliverNeeds(st, tg, batch, list, t, r)) for (const inc of batch.filter((i) => i.msg)) { await st.save(inc); did.push(`sent ${inc.key}${inc.batch ? ` (one message for ${inc.batch.length})` : ''}`); }
     for (const inc of list.filter((i) => i.kind && ['needs_you', 'outage', 'ops'].includes(i.kind))) {
       let changed = false;
       if (inc.open && !delivered(inc) && due(st, inc, t)) { if (await deliver(st, tg, board, inc, list, t, r)) { changed = true; did.push(`sent ${inc.key}`); } }

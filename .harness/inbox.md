@@ -31,6 +31,15 @@ used to get around the pause. Its old wake channel is no longer used and can clo
 closes: an older job answers first, through the channel or with "Not delivered". An unreadable STATE
 lookup is "Not delivered", never the channel; a request carrying `wake-stopped` is not labelled.
 
+## Started by the sender (K056)
+
+The wake above needs a job and an outside call to reach the receiving project. The session that
+sends a request, or finishes one, does not wait for it: in the same turn it runs the line
+`inbox.mjs` prints (`wake.mjs handoff …`) and, on `START`, starts the other project's coordinator
+run itself (`wake.md`, "Hand-off between projects"). On `done` or `blocked` the line names the
+project in the request's Source. The label and "Woke" stay as they are: when the hand-off cannot
+start a run, they are what waits.
+
 ## Pickup by channel (K018, K024)
 
 1. The sender files the request with `inbox.mjs send`. The wake is a comment on the receiving

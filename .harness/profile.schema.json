@@ -113,6 +113,14 @@
         "turn_budget": { "type": "integer", "minimum": 1, "default": 60 }
       }
     },
+    "ci_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How much of the project's own CI a pull request needs (K059, .harness/ci.md, tools/scope.mjs).",
+      "properties": {
+        "full": { "type": "array", "items": { "type": "string" }, "description": "Paths where even a document runs everything (a site may build it); replaces scope.mjs FULL_PATHS." }
+      }
+    },
     "reviewers": {
       "type": "object",
       "additionalProperties": false,

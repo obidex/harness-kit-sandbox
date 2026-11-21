@@ -6,6 +6,12 @@
 # PR's code, and treats the body as data. PRs use pull_request, never pull_request_target (K030, A19):
 # a fork's or Dependabot's PR gets a read-only token, so its body is left as it is, with a warning. Its own edit is made
 # with GITHUB_TOKEN, whose events start no workflow, so it cannot loop.
+# One run per burst (K059, .harness/ci.md): issues and comments share one group for the repository (one
+# run going, one waiting; GitHub drops an older waiting run for a newer one), and each run sweeps every
+# body updated since the last green run, so nothing a dropped run named is missed. A pull request's own
+# events keep a group per pull request, so a comment never leaves a cancelled check on its head commit.
+# A fork's or Dependabot's pull request event (read-only token) has a group of its own and sweeps nothing.
+# Runs on the chore lane (CHORE_RUNNER, K059), so a few seconds of work never waits behind a test run.
 name: harness-scrub
 
 on:
@@ -24,19 +30,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: harness-scrub-${{ github.event_name }}-${{ github.event.comment.id || github.event.review.id || github.event.issue.number || github.event.pull_request.number }}
+  group: harness-scrub-${{ ((github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]')) || github.actor == 'github-actions[bot]') && github.run_id || github.event.pull_request.number || 'all' }}
   cancel-in-progress: false
 
 jobs:
   scrub:
     if: github.actor != 'github-actions[bot]'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 3
     permissions:
       contents: read
       issues: write
       pull-requests: write
-      actions: write   # starts a failed harness-guard run again after it removes a footer (K044)
+      actions: write   # starts a failed harness-guard run again after it removes a footer (K044); reads its own runs (K059)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,4 +56,5 @@ jobs:
       - name: Remove Claude attribution from the body
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SCRUB_SWEEP: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]')) && 'off' || 'on' }}
         run: node .harness/tools/scrub.mjs

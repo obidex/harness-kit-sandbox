@@ -342,6 +342,15 @@ function report(w) {
   else { console.log(`inbox: NOT delivered: ${w.why}`); process.exitCode = 3; }
 }
 
+/** K056: the line that follows a hand-over. The session that just sent or finished a request runs it in
+ *  the same turn, so the project that now has work (or its answer) starts without anyone relaying. */
+export const handoffLine = (to, issue, from) => `inbox: next, in this same turn (K056, wake.md "Hand-off between projects"): node .harness/tools/wake.mjs handoff --repo ${to}${issue ? ` --issue ${issue}` : ''}${from ? ` --from ${from}` : ''}`;
+/** The repository and item a request came from, out of its Source line: where its answer is waited on. */
+export function sourceOf(source) {
+  const m = /github\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)/.exec(String(source || ''));
+  return m ? { repo: m[1], issue: Number(m[2]) } : null;
+}
+
 const argv = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
 
@@ -355,7 +364,7 @@ async function main() {
     const have = canonical(await requests(repo)).find((x) => x.fields.id === r.id);
     if (have) {
       console.log(`inbox: ${r.id} is already ${have.url} (${have.state}, ${have.fields.State}); nothing filed`);
-      if (queued(have)) report(await wakeFromSend(repo, have, { again: argv.includes('--again') }));
+      if (queued(have)) { report(await wakeFromSend(repo, have, { again: argv.includes('--again') })); console.log(handoffLine(repo, have.number)); }
       return;
     }
     const i = await api('POST', `/repos/${repo}/issues`, { title: opt('--title') || r.outcome.slice(0, 80), body: text, labels: [LABEL] });
@@ -374,6 +383,7 @@ async function main() {
     }
     console.log(`inbox: filed ${r.id} as ${i.html_url}`);
     report(await wakeFromSend(repo, { number: i.number, url: i.html_url, fields: parse(text) }, { fresh: true }));
+    console.log(handoffLine(repo, i.number));
     return;
   }
   if (cmd === 'pending') {
@@ -392,6 +402,9 @@ async function main() {
     await api('PATCH', `/repos/${repo}/issues/${n}`, { body: text, ...(to === 'done' ? { state: 'closed', state_reason: 'completed' } : {}) });
     await api('POST', `/repos/${repo}/issues/${n}/comments`, { body: `**${to}**${note ? `: ${note}` : ''}` });
     console.log(`inbox: ${f.id} (#${n}) is ${to}`);
+    // the sender waits on a finished or blocked request: its project starts now, not at its next morning
+    const src = to === 'working' ? null : sourceOf(f.Source);
+    if (src && src.repo.toLowerCase() !== repo.toLowerCase()) console.log(handoffLine(src.repo, src.issue, repo));
     return;
   }
   if (cmd === 'wake') {

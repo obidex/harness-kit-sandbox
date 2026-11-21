@@ -1,7 +1,28 @@
-# Second review · a model reads every pull request once its checks are green
+# Second review · a model reads a pull request once its checks are green, while the owner has it switched on
 
-> Lookup only, never loaded. K054. The tool is `tools/review.mjs`; the workflow is
+> Lookup only, never loaded. K054, K055. The tool is `tools/review.mjs`; the workflow is
 > `templates/workflows/harness-review.yml`, installed as `.github/workflows/harness-review.yml`.
+> The full check of existing code is `tools/sweep.mjs` with `templates/workflows/harness-sweep.yml`.
+
+## The switch (K055)
+
+The reviewer is installed everywhere and **off by default**. It spends from a credit, and the owner
+decides when that credit is spent: it is on only between his command and the end time he names.
+
+- **On** means the Actions variable `REVIEW_UNTIL` holds a date and time with its offset that has
+  not passed, for example `2026-11-30T23:59+03:00`. Anything else is off: not set, a date without a
+  time or offset, a bare `on`, a day the calendar does not have, a time that has passed, and a time
+  more than 45 days ahead. So there is no value that means "on for good".
+- **It switches itself off** at that time: the job reads the clock, nobody has to come back.
+- **Only the owner's command sets it**: "reviewer on until <date>" or "reviewer off", said to the
+  project that looks after his repositories. A session then sets or deletes `REVIEW_UNTIL` in each
+  repository he named (Settings → Secrets and variables → Actions → Variables) and reports the value
+  and the repositories. No rule, schedule, routine or agent pass sets, extends or re-creates it, and
+  a status report says "installed, off" or "on until <time>", never just "on".
+- `node .harness/tools/review.mjs switch --until <value>` checks a value before it is set and prints
+  when it ends in UTC; it sets nothing.
+
+The identifiers below stay in place while it is off, so switching on is one variable per repository.
 
 ## What it is
 
@@ -57,8 +78,8 @@ once per repository, by whoever administers the Anthropic organisation:
 3. Four Actions variables in the repository: `REVIEW_FEDERATION_RULE`, `REVIEW_ORGANIZATION`,
    `REVIEW_SERVICE_ACCOUNT`, `REVIEW_WORKSPACE`. They are identifiers, not secrets.
 
-Until `REVIEW_FEDERATION_RULE` is set the job is skipped, so installing the workflow changes
-nothing. Deleting that variable is the off switch.
+Until `REVIEW_FEDERATION_RULE` is set the job is skipped whatever the switch says, so installing the
+workflow changes nothing. The identifiers are the set-up, `REVIEW_UNTIL` is the switch.
 
 ## Caps and cost (O13)
 
@@ -72,7 +93,8 @@ is the stop across repositories; the in-code caps stop one repository from using
 
 A typical review (25,000 tokens in, 4,000 out) costs about $0.09 on the default model and $0.18 on
 the high-risk one. `node .harness/tools/review.mjs spent --repo <owner/name>` prints today's count
-and cost.
+and cost; with `--since <YYYY-MM-DD>` it prints every day's from that day on, for the report that
+follows a switched-on period.
 
 Runner minutes: one short job per finished pull-request workflow the file lists, on the project's
 `RUNNER` lane (`hands.md`); it may wait up to 90 seconds for other checks.
@@ -85,6 +107,40 @@ check replaced it is left out; the newer run decides. The job starts when a work
 file's `workflows:` list finishes (GitHub allows no wildcard there). A project whose last
 pull-request workflow has another name is reviewed only when that workflow finishes within the
 90-second wait; adding a name is a kit change.
+
+## The full check of existing code (K055)
+
+The reviewer above reads only what changes. `harness-sweep` reads what is already there, once, when
+the owner asks for it: every tracked code file of the default branch, folder by folder.
+
+- **Private repositories only.** Its issues name defects in code that is in use; on a public
+  repository it refuses to run.
+- **Started by hand only**, from the default branch (Actions → harness-sweep → Run workflow). No
+  schedule and no event starts it. `estimate` (the default) reads the files and prints how many
+  areas there are and the most a check could cost; it sends nothing to a model and needs no switch.
+  `run` works only while the switch is open and stops when it ends.
+- **What comes back:** one issue per area that has findings, each finding graded `blocker`, `major`
+  or `minor` with its file and line; and one record issue, "Second reviewer: full check of the
+  existing code", with areas read, findings by severity and dollars spent. The project's coordinator
+  sorts real from false and queues the fixes; each point ends FIXED, TRACKED or DISMISSED (O07).
+- **Not read:** documents, lock files, generated and vendored folders, binaries, the kit's own files
+  under `.harness`, a file that may hold a secret (`.env`, a key or certificate, credentials,
+  Terraform state and variables, a cloud or registry sign-in file), a symbolic link, and a file over
+  60,000 characters (the record lists those). The list of secret-shaped names is a floor, not a
+  proof: a repository that tracks a secret under an ordinary name has a leak to fix first.
+- **Caps, in code:** $30 for one check (`REVIEW_SWEEP_USD` may only lower it), 250 areas (name
+  folders in `paths` for a larger repository), one call per area, 320 minutes a run. A call that
+  times out or fails on the server counts at its worst case, since it may still be billed, and a
+  batch starts only with room for all three of its tries. A run that
+  stops says why in the record; starting it again continues with the areas not yet read, and reads
+  an area again only if its files changed. Closing the record issue ends that check.
+- **Set-up:** the reviewer's three identifiers, plus `REVIEW_SWEEP_RULE`: one more federation rule,
+  pinned like the reviewer's but to `harness-sweep.yml` and the event `workflow_dispatch`.
+- **Runner:** one job of up to 350 minutes on the project's `RUNNER` lane, which holds that runner
+  meanwhile; on GitHub-hosted minutes only after the owner has heard the estimate (O13).
+
+Like the reviewer it cannot run code and sees one batch at a time, so a finding that depends on
+another folder says so, and "no findings" is not evidence that the code works (C07).
 
 ## Reading a result
 

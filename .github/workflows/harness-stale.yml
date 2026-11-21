@@ -1,5 +1,6 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
 # Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
+# Runs on the chore lane: CHORE_RUNNER when set, else RUNNER (K059, .harness/ci.md).
 # C15 no silent stall: once a day, lists open PRs (green-unmerged, red, conflicted, draft, waiting;
 # bot PRs too), inbox requests queued or working, `card` or `risk:*` issues, and, where the profile
 # names them, initiatives and C22 wait records, each idle past its threshold in hours
@@ -30,7 +31,7 @@ concurrency:
 jobs:
   stale:
     name: harness-stale
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 3
     permissions:
       contents: read
