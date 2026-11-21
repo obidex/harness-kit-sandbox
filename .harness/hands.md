@@ -104,7 +104,10 @@ only the default branch's `.harness/tools`, never PR code, with `persist-credent
 `harness-audit`, which runs a PR's own code, takes the self-hosted lane only for a PR from the same
 repository (a fork's PR, or one whose fork was deleted, runs on `ubuntu-latest`). On a public
 repository anyone can queue `harness-scrub` jobs on a self-hosted runner by posting comments, so a
-public project never sets `RUNNER` (A19; the audit fails it); hosted minutes are free there. The control
+public project never sets `RUNNER` (A19; the audit fails it); hosted minutes are free there. The short
+jobs (`harness-scrub`, `-guard`, `-audit`, `-inbox`, `-review`, `-stale`, `-wake`) take the chore lane
+first: `${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}`, so a job of seconds never waits
+behind a test of minutes (K059, `ci.md`); a public project sets neither (A19). The control
 repository's `hands-*` jobs stay on GitHub-hosted runners (the App key never moves to a general
 worker, K008). Estimates per month without a self-hosted `RUNNER`, with N enrolled settings
 repositories and K repositories that pin the kit:
@@ -121,7 +124,7 @@ repositories and K repositories that pin the kit:
 | `hands-check` | control repo | each PR push there; each merge to main | 1 | ~1 per PR push, ~1 per merge |
 | `harness-audit` | each project | PR opened, pushed, reopened or edited; weekly | 1 | ~1 per PR event + 4 (a fork's PR always hosted) |
 | `harness-inbox` | each project | an issue labelled `inbox` or reopened | 1, only for a queued request | ~1 per request; 0 with a self-hosted `RUNNER` |
-| `harness-scrub` | each project | every issue, PR, comment and review posted or edited | 1 | ~1 per event: the largest cost on a busy private repo (~700+ events a month on one measured project); 0 with a self-hosted `RUNNER` |
+| `harness-scrub` | each project | every issue, PR, comment and review posted or edited | 1 | at most one running and one waiting per repository (K059): a burst of events costs one or two runs, each sweeping every body since the last green run; before 0.53.0 it was ~1 per event (~700+ a month on one measured project); 0 with a self-hosted lane |
 | `harness-guard` | each project | PR opened, pushed, reopened or edited (a title or body edit re-runs it) | 1 | ~1 per PR push or edit (about 20 s); 0 with a self-hosted `RUNNER` |
 | `harness-stale` | each project | daily; dispatch | 1 | ~30 (one short job a day); 0 with a self-hosted `RUNNER` |
 | `harness-review` | each project | a listed pull-request workflow finished green; skipped unless `REVIEW_FEDERATION_RULE` is set | 1 | ~1 per finished workflow (up to 3 while it waits for other checks); 0 with a self-hosted `RUNNER`. The API calls are paid from the API credit (`review.md`) |

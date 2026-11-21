@@ -320,7 +320,10 @@ async function liveState(repo, { interaction = true } = {}) {
   let interaction_limits = {};
   if (interaction) {
     const il = await api('GET', `/repos/${repo}/interaction-limits`);
-    if (il.status !== 200 && il.status !== 204) throw new Error(`GET /repos/${repo}/interaction-limits answered ${il.status}`);
+    // a private repository has no interaction limits and answers 405: an export leaves the field out and
+    // says so; a plan whose file names them still fails, since it could not apply them
+    if (il.status === 405 && interaction === 'if-any') note(`hands: ${repo}: interaction limits cannot be read here (405, a private repository has none): left out`);
+    else if (il.status !== 200 && il.status !== 204) throw new Error(`GET /repos/${repo}/interaction-limits answered ${il.status}`);
     if (il.status === 200 && il.data && typeof il.data === 'object') interaction_limits = il.data;
   }
   return { repository, rulesets, labels, interaction_limits };
@@ -447,7 +450,7 @@ async function main() {
   const repo = opt('--repo');
   if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('--repo owner/name is required');
   if (cmd === 'export') {
-    const live = await liveState(repo);
+    const live = await liveState(repo, { interaction: 'if-any' });
     const keys = Object.keys(schema().properties.repository.properties);
     const repository = pick(live.repository, keys.filter((k) => k !== 'security_and_analysis'));
     const sa = live.repository.security_and_analysis || {};

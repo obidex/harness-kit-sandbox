@@ -2,8 +2,18 @@
 // review — a second reviewer on every pull request, once its checks are green (K054). No dependencies.
 //
 //   node .harness/tools/review.mjs run      in Actions only (the project's harness-review job)
-//   node .harness/tools/review.mjs spent --repo owner/name
-//                                            today's reviews and their cost, from the review comments (JSON)
+//   node .harness/tools/review.mjs spent --repo owner/name [--since YYYY-MM-DD]
+//                                            today's reviews and their cost (or every day's from a date
+//                                            on), from the review comments (JSON)
+//   node .harness/tools/review.mjs switch [--until 2026-11-30T23:59+03:00]
+//                                            checks a value for the Actions variable REVIEW_UNTIL and says
+//                                            when it ends; it sets nothing (JSON)
+//
+// The switch (K055). The reviewer is OFF unless the Actions variable REVIEW_UNTIL holds a date and time
+// with its offset that has not passed. Installing the workflow and its identifiers switches nothing on;
+// the end time switches it off again by itself, and a time more than SWITCH_DAYS days ahead is off
+// too, so no value means "on for good". Only the owner's command sets REVIEW_UNTIL: no rule, schedule
+// or agent pass does.
 //
 // What it does. One job per finished pull-request workflow reads the pull request's diff and the
 // repository's rulebook from the default branch, asks a Claude model for the problems it would block
@@ -30,8 +40,8 @@
 // No stored key. GitHub's identity token for the run is swapped for an Anthropic access token that
 // lasts minutes (workload identity federation). The four identifiers come from the Actions variables
 // REVIEW_FEDERATION_RULE, REVIEW_ORGANIZATION, REVIEW_SERVICE_ACCOUNT and REVIEW_WORKSPACE; they are
-// not secrets. Without REVIEW_FEDERATION_RULE the workflow does nothing. Neither token is written to
-// disk, printed or put on a command line.
+// not secrets. Without REVIEW_FEDERATION_RULE, or without an open REVIEW_UNTIL, the workflow does
+// nothing. Neither token is written to disk, printed or put on a command line.
 //
 // Caps, in code, per repository and UTC day, counted from this tool's own comments (each records the
 // model's reported token use): DAILY_USD dollars and DAILY_CAP reviews. A review that could pass the
@@ -52,11 +62,11 @@ export const PRICES = Object.freeze({ 'claude-sonnet-5-5': [2, 10], 'claude-opus
 export const DAILY_USD = 2.5, DAILY_CAP = 40;
 export const MAX_DIFF = 150000, MAX_FILES = 300, MAX_RULES = 40000, MAX_PR_TEXT = 4000, MAX_OUT = 8000, MAX_ANSWER = 6000;
 export const WAIT_MS = 90000, POLL_MS = 15000;
-const BOT = 'github-actions[bot]';
+export const BOT = 'github-actions[bot]';
 const KEEP_RUNS = 60;   // more than DAILY_CAP: one pull request's record can never drop a run made today
 // agent configuration and automation are high-risk in every project (C09 tier 3)
 const ALWAYS_RISKY = ['.github/**', '.harness/**', '.claude/**', 'CLAUDE.md', 'AGENTS.md', '.mcp.json', '**/migrations/**'];
-const DOCS = /(^|\/)(LICEN[CS]E|NOTICE|CHANGELOG|README)(\.[a-z]+)?$|\.(md|mdx|txt|rst|png|jpe?g|gif|svg|webp|pdf)$/i;
+export const DOCS = /(^|\/)(LICEN[CS]E|NOTICE|CHANGELOG|README)(\.[a-z]+)?$|\.(md|mdx|txt|rst|png|jpe?g|gif|svg|webp|pdf)$/i;
 
 // --- paths ------------------------------------------------------------------------------------------
 /** A profile path pattern as a RegExp: `**` any depth, `*` within one path part. */
@@ -77,6 +87,25 @@ export const highRisk = (files, profile) => { const r = risky(profile); return f
 /** Documents only: every changed path is a document and none is high-risk (a rule file is a rule). */
 export const docsOnly = (files, profile) => files.length > 0 && files.every((f) => DOCS.test(f)) && !highRisk(files, profile).length;
 export const pick = (files, profile) => (highRisk(files, profile).length ? RISK_MODEL : MODEL);
+
+// --- the switch -------------------------------------------------------------------------------------
+const WHEN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:Z|[+-](\d{2}):(\d{2}))$/;
+export const SWITCH_DAYS = 45;
+/** Whether the reviewer is switched on: REVIEW_UNTIL is a real date and time with its offset, still
+ *  ahead and no more than SWITCH_DAYS away. Anything else (not set, unreadable, passed, too far
+ *  ahead) is off; `why` says which. */
+export function switchOf(env, now = Date.now()) {
+  const v = String(env?.REVIEW_UNTIL ?? '').trim();
+  if (!v) return { on: false, why: 'the reviewer is switched off (REVIEW_UNTIL is not set)' };
+  const m = v.match(WHEN);
+  // a day the calendar does not have (31 February) is unreadable, never rolled into the next month
+  const real = m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= new Date(Date.UTC(+m[1], +m[2], 0)).getUTCDate() && +m[4] < 24 && +m[5] < 60 && +(m[6] || 0) < 60 && +(m[7] || 0) < 24 && +(m[8] || 0) < 60;
+  const t = real ? Date.parse(v) : NaN;
+  if (!Number.isFinite(t)) return { on: false, why: 'the reviewer is switched off (REVIEW_UNTIL is not a date and time with its offset, like 2026-11-30T23:59+03:00)' };
+  const until = new Date(t).toISOString();
+  if (t - now > SWITCH_DAYS * 86400000) return { on: false, until, why: `the reviewer is switched off (REVIEW_UNTIL is more than ${SWITCH_DAYS} days ahead, so it stays off until it is within them: a switch is for a stated time, never for good)` };
+  return now < t ? { on: true, until } : { on: false, until, why: `the reviewer is switched off (its time ended ${until})` };
+}
 
 // --- money ------------------------------------------------------------------------------------------
 /** What a call cost, from the usage the API reported (cache reads and writes counted as input). */
@@ -100,9 +129,9 @@ export function record(c) {
   try { const d = m ? JSON.parse(m[1]) : null; return d && Array.isArray(d.runs) ? d : null; } catch { return null; }
 }
 /** The model's answer as text a comment may carry: no HTML comment, no mention, no more than MAX_ANSWER. */
-export function plain(text) {
+export function plain(text, max = MAX_ANSWER) {
   let s = String(text || '').replace(/<!--/g, '< !--').replace(/&(?:#0*64|#x0*40|commat);?/gi, '@\u200b').replace(/(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/g, '$1@\u200b').trim();
-  if (s.length > MAX_ANSWER) s = `${s.slice(0, MAX_ANSWER)}\n\n(cut at ${MAX_ANSWER} characters)`;
+  if (s.length > max) s = `${s.slice(0, max)}\n\n(cut at ${max} characters)`;
   return s;
 }
 const short = (sha) => String(sha).slice(0, 7);
@@ -131,16 +160,18 @@ export function runUsd(r) {
   if (PRICES[r?.model] && n.every((x) => Number.isInteger(x) && x >= 0 && x < 1e8)) return cost(r.model, { input_tokens: n[0], output_tokens: n[1] });
   return worstCase(RISK_MODEL, MAX_DIFF + MAX_RULES + MAX_PR_TEXT);
 }
-/** Today's reviews in a repository's comments: how many called a model, and what they cost. */
-export function spent(comments, now = Date.now()) {
+/** Today's reviews in a repository's comments: how many called a model, and what they cost. With
+ *  `since` (a UTC day), every day's from that day on instead, for a report. */
+export function spent(comments, now = Date.now(), since = null) {
   const day = new Date(now).toISOString().slice(0, 10);
   let usd = 0, reviews = 0;
   for (const c of comments) for (const r of record(c)?.runs || []) {
-    if (String(r.at || '').slice(0, 10) !== day || !r.model) continue;
+    const d = String(r.at || '').slice(0, 10);
+    if ((since ? d < since || d > day : d !== day) || !r.model) continue;
     reviews++;
     usd += runUsd(r);
   }
-  return { day, reviews, usd: Math.round(usd * 1e4) / 1e4 };
+  return { ...(since ? { since } : {}), day, reviews, usd: Math.round(usd * 1e4) / 1e4 };
 }
 
 // --- the checks -------------------------------------------------------------------------------------
@@ -191,8 +222,8 @@ export function verdict(msg) {
 }
 
 // --- one run ----------------------------------------------------------------------------------------
-const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const pages = async (gh, path, key, max) => {
+export const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+export const pages = async (gh, path, key, max) => {
   const out = [];
   for (let page = 1; page <= max; page++) {
     const r = await gh('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
@@ -208,6 +239,8 @@ const file = async (gh, repo, path, ref) => { try { return await gh('GET', `/rep
  *  `ask(request)` the model: `{ status, json }`. Returns `{ status, ... }`; `status` says what happened. */
 export async function review({ gh, ask, repo, run, env = {}, now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = () => {} }) {
   if (!REPO.test(String(repo || ''))) throw new Error('repo must be owner/name');
+  const sw = switchOf(env, now());
+  if (!sw.on) return { status: 'skipped', why: sw.why };
   const sha = String(run?.head_sha || '');
   if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('the workflow run has no head commit');
   if (run.event !== 'pull_request') return { status: 'skipped', why: 'not a pull request run' };
@@ -363,12 +396,18 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       const out = await review({ gh: github, ask, repo, run, env: process.env, log: (m) => console.log(`review: ${m}`) });
       console.log(`review: ${JSON.stringify(out)}`);
     } else if (cmd === 'spent') {
-      const repo = arg('repo');
+      const repo = arg('repo'), since = arg('since');
       if (!REPO.test(String(repo || ''))) throw new Error('--repo must be owner/name');
-      const day = new Date().toISOString().slice(0, 10);
-      const l = await pages(github, `/repos/${repo}/issues/comments?since=${day}T00:00:00Z&sort=updated&direction=desc`, null, 10);
-      if (!l) throw new Error('more than 1000 comments changed today; not counted in part');
-      console.log(JSON.stringify({ ...spent(l), caps: { usd: capOf(DAILY_USD, process.env.REVIEW_DAILY_USD), reviews: capOf(DAILY_CAP, process.env.REVIEW_DAILY_CAP) } }));
-    } else { console.error('usage: review.mjs run | spent --repo owner/name (see the header)'); process.exit(2); }
+      if (since !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(since))) throw new Error('--since must be a day, YYYY-MM-DD');
+      const day = since || new Date().toISOString().slice(0, 10);
+      const l = await pages(github, `/repos/${repo}/issues/comments?since=${day}T00:00:00Z&sort=updated&direction=desc`, null, since ? 50 : 10);
+      if (!l) throw new Error(`more than ${since ? 5000 : 1000} comments changed since ${day}; not counted in part`);
+      console.log(JSON.stringify({ ...spent(l, Date.now(), since || null), caps: { usd: capOf(DAILY_USD, process.env.REVIEW_DAILY_USD), reviews: capOf(DAILY_CAP, process.env.REVIEW_DAILY_CAP) } }));
+    } else if (cmd === 'switch') {
+      const v = arg('until');
+      const sw = switchOf({ REVIEW_UNTIL: v === undefined ? process.env.REVIEW_UNTIL : v });
+      console.log(JSON.stringify({ variable: 'REVIEW_UNTIL', value: v === undefined ? process.env.REVIEW_UNTIL || '' : v, ...sw }));
+      if (v !== undefined && !sw.on) process.exit(1);
+    } else { console.error('usage: review.mjs run | spent --repo owner/name [--since day] | switch [--until when] (see the header)'); process.exit(2); }
   } catch (e) { console.error(`review: ${e.message}`); process.exit(1); }
 }

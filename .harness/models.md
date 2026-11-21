@@ -17,6 +17,9 @@
 | CI jobs that call the API (credit check, failure digest) | Haiku 5.5 | none | the workflow files |
 | The owner's laptop (Remote Control and his own sessions) | his largest model at the top effort | top | his screenshot of 11 Nov 2026; he changes it, never an agent |
 
+**21 Nov 2026:** a scheduled daily-start check that named no model stopped on the weekly limit of
+the account's default model. Since K058 every helper task names Haiku in its settings.
+
 **Claude Fable 5.2** was no one's default on 19 Nov 2026: no session, task or workflow named it. Whether a
 cloud thread can be started on it is proved by the first clean-up card (part C of the initiative), which
 asks for it and reports the model it actually ran on.
@@ -39,9 +42,10 @@ asks for it and reports the model it actually ran on.
 | Work | Model | Effort |
 |---|---|---|
 | Log digest, read-only helper | Haiku | low |
+| Scheduled helper task (a daily start, a check-in, a kickoff), named in its settings, never the account default (O06, K058) | Haiku | low |
 | Clear, bounded build (tier 1-2) | Sonnet | medium |
 | Hard, risky or unattended work; tier-3 design | Opus | high |
 | Tier-3 independent review (C10) | Opus | high |
-| Second review of a pull request (`review.md`, K054) | Sonnet; Opus on high-risk paths | medium |
+| Second review of a pull request, and the full check of existing code (`review.md`, K054, K055) | Sonnet; Opus on high-risk paths | medium |
 | Coordinator turns (routing, short replies) | as set by the platform | low or medium |
 | Anything at `xhigh` or `max` | only with a measured gain, recorded on its card | |

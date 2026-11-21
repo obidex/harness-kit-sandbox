@@ -1,5 +1,6 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
 # Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
+# Runs on the chore lane: CHORE_RUNNER when set, else RUNNER (K059, .harness/ci.md).
 # Inbox pickup (O14, K009, K018, K024): when an issue gets the `inbox` label (or is reopened), wake
 # this project's coordinator, but only if that issue is a queued request not yet woken, so the AI
 # runs only when there is work, and a request already picked up or done never wakes it twice. This
@@ -26,7 +27,7 @@ concurrency:
 jobs:
   wake:
     if: (github.event.action == 'labeled' && github.event.label.name == 'inbox') || (github.event.action == 'reopened' && contains(github.event.issue.labels.*.name, 'inbox'))
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 3
     permissions:
       contents: read

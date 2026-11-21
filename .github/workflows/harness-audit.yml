@@ -1,5 +1,6 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
 # Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
+# Runs on the chore lane: CHORE_RUNNER when set, else RUNNER (K059, .harness/ci.md).
 # The kit's structural audit (.harness/audit/README.md §1). On a pull request it runs fully only when
 # kit, entry, agent or workflow files changed, and otherwise passes at once, so it can be a required
 # check. Weekly it also reads GitHub (rulesets, default-branch runs) and reports to one issue.
@@ -24,7 +25,7 @@ jobs:
     name: harness-audit
     # a PR's own code runs here, so only a PR from this repository may reach the self-hosted runner;
     # a fork's PR, or one whose fork was deleted (head.repo is null), runs on ubuntu-latest
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.RUNNER || 'ubuntu-latest') || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest') || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
       contents: read

@@ -1,5 +1,6 @@
 # Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
 # Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
+# Runs on the chore lane: CHORE_RUNNER when set, else RUNNER (K059, .harness/ci.md).
 # Disposable, event-fired coordinators (K033, .harness/wake.md): the label `wake` on an issue or pull
 # request starts one fresh coordinator run through the project's scheduled task (/fire), at most one at
 # a time (the claim label `coordinator-running` on the STATE issue), and the job posts the run's
@@ -11,6 +12,9 @@
 # 30 days or made no progress (`wake-stopped`); 3 failed starts or 8 hand-offs in a row (`wake-paused`).
 # Inert until the project sets the Actions variable WAKE_ROUTINE_URL and the secret WAKE_ROUTINE_TOKEN
 # (.harness/wake.md "Setup"): with no URL every job is skipped and costs nothing.
+# With the Actions variable WAKE_START set to `label` (K057) the job calls nothing outside GitHub and
+# needs no URL and no token: the claim label it sets on the STATE issue starts the project's scheduled
+# task, which has a GitHub trigger on that label (.harness/wake.md "Start by label").
 # Safe on a self-hosted runner: it runs only the default branch's .harness/tools, never PR scripts, and
 # never for a pull request from a fork or Dependabot (no secret there). Like any workflow, a same-repo
 # PR runs this file as the PR has it; harness-guard limits who may change .github/.
@@ -45,12 +49,12 @@ concurrency:
 jobs:
   wake:
     if: >-
-      vars.WAKE_ROUTINE_URL != '' && (
+      (vars.WAKE_ROUTINE_URL != '' || vars.WAKE_START == 'label') && (
       (github.event.action == 'labeled' && github.event.label.name == 'wake' &&
        (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'))) ||
       (github.event.action == 'unlabeled' && github.event.label.name == 'coordinator-running') ||
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -73,6 +77,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           WAKE_ROUTINE_URL: ${{ vars.WAKE_ROUTINE_URL }}
           WAKE_ROUTINE_TOKEN: ${{ secrets.WAKE_ROUTINE_TOKEN }}
+          WAKE_START: ${{ vars.WAKE_START }}
           WAKE_DAILY_CAP: ${{ vars.WAKE_DAILY_CAP }}
           EVENT: ${{ github.event_name == 'issues' && github.event.action || github.event_name == 'pull_request' && 'labeled' || github.event_name }}
           ISSUE: ${{ github.event.issue.number || github.event.pull_request.number || inputs.issue }}

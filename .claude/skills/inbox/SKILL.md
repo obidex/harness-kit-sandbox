@@ -24,7 +24,14 @@ on that issue, and the sender reads the result there. Setup and cost: `.harness/
    the request is filed but nobody was woken: it stays queued, a resend tries again (`--again` for
    one already woken), and you record it for your next scheduled check. A 401 or 403 in a cloud
    session: attach the repository with push access first. Never ask the owner to wake or relay (O15).
-4. Read the result on the issue. Do not do the work yourself in the other repository.
+4. **Start the receiver, in this same turn (K056).** Run the line `send` printed last
+   (`wake.mjs handoff --repo <owner/name> --issue <n>`; add `--from <your owner/name>`) and obey its
+   last line: on `HANDOFF: START <trig id>` call `fire_trigger` once with that id and no
+   text (a refused call or an error answer: the same command with `--failed "<error>"`,
+   nothing else; a timeout may have started the run, so release nothing); on
+   `QUEUED` or `NOTHING` go on. This holds whatever step 3 said about delivery
+   (`.harness/wake.md`, "Hand-off between projects").
+5. Read the result on the issue. Do not do the work yourself in the other repository.
 
 ## Picking up requests (the receiving coordinator)
 
@@ -66,4 +73,8 @@ in `Found:` (class: constraint, prevented by this fallback, kit 0.17.1).
       issue.
    4. Run `state --to done --note "<evidence>"`: the PR, the check run, the command and its output.
       This closes the issue. The sender reads it there.
+   5. **Start the project that asked, in this same turn (K056).** After `done` or `blocked`, run
+      the `wake.mjs handoff` line the tool printed (it names the Source's repository; attach it
+      with push access first) and obey its last line as in "Sending a request", step 4. No line
+      printed: the Source names no repository, so go on.
 3. End the turn. Nothing goes to the owner unless a request is blocked on him.

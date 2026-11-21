@@ -1,0 +1,77 @@
+# Kit-managed (Harness Kit): installed and updated by .harness/tools/harness.mjs; never edit here.
+# Action group: approval (started by hand, on the owner's command, inside his window; .harness/tools/actions.mjs)
+# One full check of the code that already exists, by the second reviewer (K055;
+# .harness/tools/sweep.mjs, review.md). The pull-request reviewer reads only what changes; this reads
+# every tracked code file of the default branch, folder by folder, and files ONE issue per area with
+# findings (each graded blocker, major or minor) plus one record issue with the numbers.
+# Advisory (O07): it gates nothing. The project's coordinator sorts real from false.
+# Private repositories only: on a public one the tool refuses, since its issues would publish defects.
+# Started by hand only (no schedule, no event), and only from the default branch. "estimate" (the
+# default) reads the files, prints what a check would cost and sends nothing to a model. "run" works
+# only while the reviewer's switch is open (the Actions variable REVIEW_UNTIL, K055) and stops when it
+# ends; starting it again continues where it stopped.
+# No stored key: GitHub's identity token for this run is swapped for an Anthropic access token that
+# lasts minutes. REVIEW_SWEEP_RULE names this workflow's own federation rule (tied to this file on the
+# default branch and to a run started by hand); the other identifiers are the reviewer's.
+# The repository is data: its files are read, never run; a symbolic link is never followed, and a
+# file that may hold a secret (.env, a key file) is never sent. Safe on a self-hosted runner for that
+# reason; the access token stays in the job's memory.
+# Caps, in sweep.mjs: $30 for one check (REVIEW_SWEEP_USD may only lower it), 250 areas, one call per
+# area, 320 minutes a run. The reviews workspace's spend limit is the stop above them.
+# Cost (O13): the API calls (the estimate says the most a check could cost, before anything is spent);
+# and one job of up to 350 minutes on the project's RUNNER lane, which holds that runner meanwhile.
+# GitHub-hosted minutes only on a private repository without a self-hosted RUNNER: tell the owner the
+# estimate's size first.
+name: harness-sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "estimate = count only, nothing sent; run = the check itself"
+        type: choice
+        options: [estimate, run]
+        default: estimate
+      paths:
+        description: "Only these folders or files, comma separated (empty = everything)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: harness-sweep
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Estimate, or read the code and file the findings
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SWEEP_MODE: ${{ inputs.mode }}
+          SWEEP_PATHS: ${{ inputs.paths }}
+          REVIEW_UNTIL: ${{ vars.REVIEW_UNTIL }}
+          REVIEW_SWEEP_RULE: ${{ vars.REVIEW_SWEEP_RULE }}
+          REVIEW_ORGANIZATION: ${{ vars.REVIEW_ORGANIZATION }}
+          REVIEW_SERVICE_ACCOUNT: ${{ vars.REVIEW_SERVICE_ACCOUNT }}
+          REVIEW_WORKSPACE: ${{ vars.REVIEW_WORKSPACE }}
+          REVIEW_SWEEP_USD: ${{ vars.REVIEW_SWEEP_USD }}
+        run: node .harness/tools/sweep.mjs run

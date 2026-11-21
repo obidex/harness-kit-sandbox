@@ -34,7 +34,9 @@ older form, kept until every sender has moved to a kind.
   "alert 2 of 3", no thresholds, no instruction meant for an agent ("Resume it or record why it
   waits"). `formatProblems` and `plainProblems` enforce it on every kind before it is sent, and the
   template test runs every template through both, so no template ships outside the format. Several
-  alerts at once are one message, never several.
+  alerts at once are one message, never several: at most three steps in it (O02), the most urgent and
+  then the oldest, each place with its own link. The rest follow in the next message, once those are
+  sorted or an hour has passed.
 - **Replies to the owner in chat and threads** keep the same five parts (what happened, who, what he
   must do, where, when), one short line each, **without** the labels: start with the topic and end with
   the status word (DONE, WAITING FOR YOU, WAITING ON, STOPPED). Only the bot's messages carry the labels

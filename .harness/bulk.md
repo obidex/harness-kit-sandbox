@@ -16,10 +16,11 @@
 3. **Subagents wherever they speed the work up.** A thread splits independent parts across
    subagents (searches, reviews, replays, files nobody else touches). Each is named with its model
    and effort, or inherits them knowingly (A23, `models.md`). The thread still owns the result.
-4. **The owner's browser before any owner step.** A browser signed in as the owner, its extension
-   and computer use on his machine are used whenever that removes a step of his (O17). The limits
-   stay: no secret typed, read or copied; nothing paid; stop at a sign-in, a code or a payment page
-   (O04, O05, O13).
+4. **Every rung before any owner step.** Redesign at the plan, an API or a script, his terminal over
+   Remote Control, then a browser signed in as the owner, its extension and computer use on his
+   machine, whenever that removes a step of his (O17, `owner-steps.md`). The limits stay: nothing
+   paid; stop only at his password, a code or a payment; a secret moves only as O04 allows; a step
+   that still reaches him carries its `Tried:` line (O02, O04, O05, O13).
 5. **Protect what is scarce.** Threads are not scarce; these are, and a batch is laid out around them:
    metered CI minutes, a server's disk, a host's daily build or deploy allowance, API rate limits and
    any other counted allowance the project names. Before a batch starts many runs against one of
