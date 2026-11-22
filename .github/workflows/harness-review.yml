@@ -6,14 +6,17 @@
 # green, reads the diff and the rulebook, asks a Claude model for the problems it would block the
 # merge for, and keeps ONE comment on the pull request: the findings, or "no blockers".
 # Advisory (O07): never a required check, never an approval, never C10's independent reviewer.
-# Off by default (K055): the job is skipped unless the Actions variable REVIEW_UNTIL holds a date and
-# time with its offset that has not passed (2026-11-30T23:59+03:00), and REVIEW_FEDERATION_RULE is set.
-# The end time switches it off again by itself; a time more than 45 days ahead is off too. Only the
-# owner's command sets REVIEW_UNTIL.
+# Off by default (K055): nothing is reviewed unless its end time, a date and time with its offset
+# (2026-11-30T23:59+03:00), has not passed. The end time switches it off again by itself; a time more
+# than 45 days ahead is off too. Only the owner's command sets it.
+# Settings in a file (K060): the end time and the identifiers live in .github/harness-review.json on
+# the default branch, an ordinary reviewed change with no settings page. An Actions variable of the
+# same name (REVIEW_UNTIL, REVIEW_FEDERATION_RULE, ...) is read only for a setting the file leaves out.
+# The tool reads the file first and stops there while the switch is off: a job of seconds.
 # No stored key: GitHub's identity token for this run is swapped for an Anthropic access token that
-# lasts minutes (workload identity federation). REVIEW_FEDERATION_RULE, REVIEW_ORGANIZATION,
-# REVIEW_SERVICE_ACCOUNT and REVIEW_WORKSPACE are identifiers, not secrets. The federation rule on the
-# other side is tied to this file on the default branch, so no other workflow or branch gets a token.
+# lasts minutes (workload identity federation). The federation rule, organization, service account and
+# workspace are identifiers, not secrets. The federation rule on the other side is tied to this file on
+# the default branch, so no other workflow or branch gets a token.
 # The pull request is data: this file runs from the default branch (workflow_run), checks out only the
 # default branch's .harness/tools, never the pull request, and its only output is the comment. A
 # fork's pull request, a bot's and a draft are skipped. Safe on a self-hosted runner for that reason;
@@ -21,8 +24,10 @@
 # Caps, in review.mjs: $2.50 and 40 reviews a UTC day per repository (REVIEW_DAILY_USD and
 # REVIEW_DAILY_CAP may only lower them), one review per commit, 5 minutes a run.
 # Cost (O13): the API calls, about $0.10 a review on the default model and twice that on high-risk
-# paths; and one short job per finished workflow listed below, GitHub-hosted minutes only on a private
-# repository without a self-hosted RUNNER (about 1 a run; up to 3 while it waits for other checks).
+# paths; and one short job per finished workflow listed below. On a private repository without a
+# self-hosted CHORE_RUNNER or RUNNER the job starts only when the variables REVIEW_FEDERATION_RULE and
+# REVIEW_UNTIL are both set, as before K060, so it adds no GitHub-hosted minutes (about 1 a run; up to 3
+# while it waits); such a repository is switched on by its variable, and the file can only shorten it.
 # A pull-request workflow with another name starts nothing here: its checks are seen only when they
 # finish within 90 seconds of a listed one.
 name: harness-review
@@ -43,8 +48,7 @@ jobs:
   review:
     name: harness-review
     if: >-
-      vars.REVIEW_UNTIL != '' &&
-      vars.REVIEW_FEDERATION_RULE != '' &&
+      (vars.CHORE_RUNNER != '' || vars.RUNNER != '' || !github.event.repository.private || (vars.REVIEW_FEDERATION_RULE != '' && vars.REVIEW_UNTIL != '')) &&
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository

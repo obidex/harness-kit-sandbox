@@ -8,11 +8,12 @@
 # Private repositories only: on a public one the tool refuses, since its issues would publish defects.
 # Started by hand only (no schedule, no event), and only from the default branch. "estimate" (the
 # default) reads the files, prints what a check would cost and sends nothing to a model. "run" works
-# only while the reviewer's switch is open (the Actions variable REVIEW_UNTIL, K055) and stops when it
-# ends; starting it again continues where it stopped.
+# only while the reviewer's switch is open (the end time in .github/harness-review.json, or the Actions
+# variable REVIEW_UNTIL; K055, K060) and stops when it ends; starting it again continues where it stopped.
 # No stored key: GitHub's identity token for this run is swapped for an Anthropic access token that
-# lasts minutes. REVIEW_SWEEP_RULE names this workflow's own federation rule (tied to this file on the
-# default branch and to a run started by hand); the other identifiers are the reviewer's.
+# lasts minutes. sweep_rule in the settings file (or REVIEW_SWEEP_RULE) names this workflow's own
+# federation rule (tied to this file on the default branch and to a run started by hand); the other
+# identifiers are the reviewer's. A setting the file names wins over its Actions variable (K060).
 # The repository is data: its files are read, never run; a symbolic link is never followed, and a
 # file that may hold a secret (.env, a key file) is never sent. Safe on a self-hosted runner for that
 # reason; the access token stays in the job's memory.

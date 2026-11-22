@@ -1,6 +1,6 @@
 # Second review · a model reads a pull request once its checks are green, while the owner has it switched on
 
-> Lookup only, never loaded. K054, K055. The tool is `tools/review.mjs`; the workflow is
+> Lookup only, never loaded. K054, K055, K060. The tool is `tools/review.mjs`; the workflow is
 > `templates/workflows/harness-review.yml`, installed as `.github/workflows/harness-review.yml`.
 > The full check of existing code is `tools/sweep.mjs` with `templates/workflows/harness-sweep.yml`.
 
@@ -9,20 +9,49 @@
 The reviewer is installed everywhere and **off by default**. It spends from a credit, and the owner
 decides when that credit is spent: it is on only between his command and the end time he names.
 
-- **On** means the Actions variable `REVIEW_UNTIL` holds a date and time with its offset that has
-  not passed, for example `2026-11-30T23:59+03:00`. Anything else is off: not set, a date without a
-  time or offset, a bare `on`, a day the calendar does not have, a time that has passed, and a time
-  more than 45 days ahead. So there is no value that means "on for good".
+- **On** means its end time, a date and time with its offset, has not passed, for example
+  `2026-11-30T23:59+03:00`. Anything else is off: not set, `off`, a date without a time or offset, a
+  bare `on`, a day the calendar does not have, a time that has passed, and a time more than 45 days
+  ahead. So there is no value that means "on for good".
 - **It switches itself off** at that time: the job reads the clock, nobody has to come back.
 - **Only the owner's command sets it**: "reviewer on until <date>" or "reviewer off", said to the
-  project that looks after his repositories. A session then sets or deletes `REVIEW_UNTIL` in each
-  repository he named (Settings → Secrets and variables → Actions → Variables) and reports the value
-  and the repositories. No rule, schedule, routine or agent pass sets, extends or re-creates it, and
-  a status report says "installed, off" or "on until <time>", never just "on".
-- `node .harness/tools/review.mjs switch --until <value>` checks a value before it is set and prints
-  when it ends in UTC; it sets nothing.
+  project that looks after his repositories. A session carries it out as a pull request that changes
+  `until` in each named repository's settings file (below), with the command quoted in `command`, and
+  reports the value and the repositories. No rule, schedule, routine or agent pass sets, extends or
+  re-creates it, and a status report says "installed, off" or "on until <time>", never just "on".
+- `node .harness/tools/review.mjs switch` says whether it is on, until when and where that end time
+  lives (the file or the variable); with `--until <value>` it checks a value instead. It sets nothing.
 
-The identifiers below stay in place while it is off, so switching on is one variable per repository.
+## Where the settings live (K060)
+
+In **`.github/harness-review.json`** on the default branch: a project's own file, changed like any
+other file by a reviewed pull request, so no settings page and no owner step. The job reads it from the
+default branch, never from the pull request, so a pull request cannot switch its own review on.
+
+```json
+{
+  "until": "2026-12-22T23:59+03:00",
+  "command": "The owner's command of <day>: on until <date>, <what it covers>.",
+  "federation_rule": "fdrl_…", "organization": "<uuid>", "service_account": "svac_…", "workspace": "wrkspc_…",
+  "sweep_rule": "fdrl_…",
+  "note": "free text"
+}
+```
+
+- Every key is optional. `until` counts only beside a non-empty `command` naming the owner's
+  command; without it the reviewer is off.
+- **The file outranks the Actions variable.** A variable of the same name (`REVIEW_UNTIL`,
+  `REVIEW_FEDERATION_RULE`, `REVIEW_ORGANIZATION`, `REVIEW_SERVICE_ACCOUNT`, `REVIEW_WORKSPACE`,
+  `REVIEW_SWEEP_RULE`) is read only for a setting the file leaves out. A session cannot change a
+  variable, so a variable that could outrank the file would leave a stale end time only the owner could
+  clear. The caps (`daily_usd`, `daily_cap`, `sweep_usd` and their variables) take the lowest of the
+  built-in number, the file and the variable: the file may lower a cap, never raise it.
+- A file that is not one JSON object of these keys, or that cannot be fetched, switches the reviewer
+  off for that run; it never falls back to a variable.
+- The identifiers are not secrets, but a public repository keeps them in its variables and names only
+  `until` and `command` in its file.
+
+The identifiers below stay in place while it is off, so switching on is one line, `until`, in each repository's settings file.
 
 ## What it is
 
@@ -75,11 +104,16 @@ once per repository, by whoever administers the Anthropic organisation:
    (`job_workflow_ref` ending `/.github/workflows/harness-review.yml@refs/heads/<default branch>`),
    the event (`workflow_run`) and the repository's ID. A rule that pins less lets another workflow
    of that repository mint the same token.
-3. Four Actions variables in the repository: `REVIEW_FEDERATION_RULE`, `REVIEW_ORGANIZATION`,
-   `REVIEW_SERVICE_ACCOUNT`, `REVIEW_WORKSPACE`. They are identifiers, not secrets.
+3. The four identifiers in the settings file (or, for a public repository, in the Actions variables
+   `REVIEW_FEDERATION_RULE`, `REVIEW_ORGANIZATION`, `REVIEW_SERVICE_ACCOUNT`, `REVIEW_WORKSPACE`). They
+   are identifiers, not secrets.
 
-Until `REVIEW_FEDERATION_RULE` is set the job is skipped whatever the switch says, so installing the
-workflow changes nothing. The identifiers are the set-up, `REVIEW_UNTIL` is the switch.
+Until the federation rule is named the job asks nothing whatever the switch says, so installing the
+workflow changes nothing. The identifiers are the set-up, the end time is the switch. While the switch
+is off the job reads only the settings file and ends within seconds. On a private repository with no
+self-hosted `CHORE_RUNNER` or `RUNNER` it starts only where the variables `REVIEW_FEDERATION_RULE` and
+`REVIEW_UNTIL` are both set, as before K060, so being installed and off costs no GitHub-hosted minutes;
+there the variable switches it on, and the file can only shorten or end it.
 
 ## Caps and cost (O13)
 
@@ -87,7 +121,7 @@ Per repository and UTC day, in code: **$2.50** of reviews and **40** reviews, co
 comments, which record the tokens the API reported (the cost is worked out again from those tokens, and a
 record without them counts as the dearest review). A review whose estimated worst case would pass
 the money cap is not started; two reviews at the same moment can end a day slightly over. One review per commit. `REVIEW_DAILY_USD` and `REVIEW_DAILY_CAP` may only lower
-the caps; raising one is a kit release. Over a cap, or when the API refuses the call (credit used
+the caps (so may the settings file); raising one is a kit release. Over a cap, or when the API refuses the call (credit used
 up, a workspace limit), the pull request gets one line and merges go on. The workspace's spend limit
 is the stop across repositories; the in-code caps stop one repository from using it up in a day.
 
@@ -134,8 +168,9 @@ the owner asks for it: every tracked code file of the default branch, folder by 
   batch starts only with room for all three of its tries. A run that
   stops says why in the record; starting it again continues with the areas not yet read, and reads
   an area again only if its files changed. Closing the record issue ends that check.
-- **Set-up:** the reviewer's three identifiers, plus `REVIEW_SWEEP_RULE`: one more federation rule,
-  pinned like the reviewer's but to `harness-sweep.yml` and the event `workflow_dispatch`.
+- **Set-up:** the reviewer's three identifiers, plus `sweep_rule` (or `REVIEW_SWEEP_RULE`): one more
+  federation rule, pinned like the reviewer's but to `harness-sweep.yml` and the event `workflow_dispatch`.
+  It reads the settings file from its own checkout of the default branch.
 - **Runner:** one job of up to 350 minutes on the project's `RUNNER` lane, which holds that runner
   meanwhile; on GitHub-hosted minutes only after the owner has heard the estimate (O13).
 

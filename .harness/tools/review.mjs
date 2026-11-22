@@ -5,15 +5,22 @@
 //   node .harness/tools/review.mjs spent --repo owner/name [--since YYYY-MM-DD]
 //                                            today's reviews and their cost (or every day's from a date
 //                                            on), from the review comments (JSON)
-//   node .harness/tools/review.mjs switch [--until 2026-11-30T23:59+03:00]
-//                                            checks a value for the Actions variable REVIEW_UNTIL and says
-//                                            when it ends; it sets nothing (JSON)
+//   node .harness/tools/review.mjs switch [--until 2026-11-30T23:59+03:00] [--file path]
+//                                            says whether the reviewer is on, until when, and where its
+//                                            end time lives (the settings file or the Actions variable);
+//                                            with --until it checks a value instead. It sets nothing (JSON)
 //
-// The switch (K055). The reviewer is OFF unless the Actions variable REVIEW_UNTIL holds a date and time
-// with its offset that has not passed. Installing the workflow and its identifiers switches nothing on;
-// the end time switches it off again by itself, and a time more than SWITCH_DAYS days ahead is off
-// too, so no value means "on for good". Only the owner's command sets REVIEW_UNTIL: no rule, schedule
-// or agent pass does.
+// The switch (K055). The reviewer is OFF unless its end time is a date and time with its offset that
+// has not passed. Installing the workflow and its identifiers switches nothing on; the end time
+// switches it off again by itself, and a time more than SWITCH_DAYS days ahead is off too, so no value
+// means "on for good". Only the owner's command sets the end time: no rule, schedule or agent pass does.
+//
+// Where the settings live (K060). The file SETTINGS (.github/harness-review.json) on the default
+// branch, an ordinary reviewed change, so no settings page and no owner step. Its `until` is the end
+// time and counts only beside a `command` line naming the owner's command. An Actions variable
+// (REVIEW_UNTIL and the rest) is read only for a setting the file does not name: a variable cannot be
+// changed by a session, so it never outranks the file. The caps take the lowest of the built-in number,
+// the file and the variable. A file that cannot be read whole switches the reviewer off.
 //
 // What it does. One job per finished pull-request workflow reads the pull request's diff and the
 // repository's rulebook from the default branch, asks a Claude model for the problems it would block
@@ -38,10 +45,10 @@
 // the profile's risk.tier3_paths, and agent configuration and workflows everywhere.
 //
 // No stored key. GitHub's identity token for the run is swapped for an Anthropic access token that
-// lasts minutes (workload identity federation). The four identifiers come from the Actions variables
-// REVIEW_FEDERATION_RULE, REVIEW_ORGANIZATION, REVIEW_SERVICE_ACCOUNT and REVIEW_WORKSPACE; they are
-// not secrets. Without REVIEW_FEDERATION_RULE, or without an open REVIEW_UNTIL, the workflow does
-// nothing. Neither token is written to disk, printed or put on a command line.
+// lasts minutes (workload identity federation). The four identifiers come from the settings file or
+// the Actions variables REVIEW_FEDERATION_RULE, REVIEW_ORGANIZATION, REVIEW_SERVICE_ACCOUNT and
+// REVIEW_WORKSPACE; they are not secrets. Without an open end time nothing is read beyond the settings
+// file, and without the identifiers nothing is asked. Neither token is written to disk, printed or put on a command line.
 //
 // Caps, in code, per repository and UTC day, counted from this tool's own comments (each records the
 // model's reported token use): DAILY_USD dollars and DAILY_CAP reviews. A review that could pass the
@@ -91,20 +98,69 @@ export const pick = (files, profile) => (highRisk(files, profile).length ? RISK_
 // --- the switch -------------------------------------------------------------------------------------
 const WHEN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:Z|[+-](\d{2}):(\d{2}))$/;
 export const SWITCH_DAYS = 45;
-/** Whether the reviewer is switched on: REVIEW_UNTIL is a real date and time with its offset, still
- *  ahead and no more than SWITCH_DAYS away. Anything else (not set, unreadable, passed, too far
- *  ahead) is off; `why` says which. */
+/** Whether the reviewer is switched on: its end time (REVIEW_UNTIL, after settingsOf) is a real date
+ *  and time with its offset, still ahead and no more than SWITCH_DAYS away. Anything else (not set,
+ *  "off", unreadable, passed, too far ahead, a settings file that cannot be read) is off; `why` says which. */
 export function switchOf(env, now = Date.now()) {
+  if (env?.REVIEW_OFF_WHY) return { on: false, why: String(env.REVIEW_OFF_WHY) };
   const v = String(env?.REVIEW_UNTIL ?? '').trim();
-  if (!v) return { on: false, why: 'the reviewer is switched off (REVIEW_UNTIL is not set)' };
+  if (!v) return { on: false, why: `the reviewer is switched off (no end time is set: until in ${SETTINGS}, or REVIEW_UNTIL)` };
+  if (v.toLowerCase() === 'off') return { on: false, why: 'the reviewer is switched off (its end time says off)' };
   const m = v.match(WHEN);
   // a day the calendar does not have (31 February) is unreadable, never rolled into the next month
   const real = m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= new Date(Date.UTC(+m[1], +m[2], 0)).getUTCDate() && +m[4] < 24 && +m[5] < 60 && +(m[6] || 0) < 60 && +(m[7] || 0) < 24 && +(m[8] || 0) < 60;
   const t = real ? Date.parse(v) : NaN;
-  if (!Number.isFinite(t)) return { on: false, why: 'the reviewer is switched off (REVIEW_UNTIL is not a date and time with its offset, like 2026-11-30T23:59+03:00)' };
+  if (!Number.isFinite(t)) return { on: false, why: 'the reviewer is switched off (its end time is not a date and time with its offset, like 2026-11-30T23:59+03:00)' };
   const until = new Date(t).toISOString();
-  if (t - now > SWITCH_DAYS * 86400000) return { on: false, until, why: `the reviewer is switched off (REVIEW_UNTIL is more than ${SWITCH_DAYS} days ahead, so it stays off until it is within them: a switch is for a stated time, never for good)` };
+  if (t - now > SWITCH_DAYS * 86400000) return { on: false, until, why: `the reviewer is switched off (its end time is more than ${SWITCH_DAYS} days ahead, so it stays off until it is within them: a switch is for a stated time, never for good)` };
   return now < t ? { on: true, until } : { on: false, until, why: `the reviewer is switched off (its time ended ${until})` };
+}
+
+// --- the settings file (K060) -----------------------------------------------------------------------
+export const SETTINGS = '.github/harness-review.json';
+/** The file's keys and the Actions variable each one stands in for. `command` and `note` are text only. */
+export const SETTING_VARS = Object.freeze({ until: 'REVIEW_UNTIL', federation_rule: 'REVIEW_FEDERATION_RULE', organization: 'REVIEW_ORGANIZATION',
+  service_account: 'REVIEW_SERVICE_ACCOUNT', workspace: 'REVIEW_WORKSPACE', sweep_rule: 'REVIEW_SWEEP_RULE',
+  daily_usd: 'REVIEW_DAILY_USD', daily_cap: 'REVIEW_DAILY_CAP', sweep_usd: 'REVIEW_SWEEP_USD' });
+const CAP_KEYS = new Set(['daily_usd', 'daily_cap', 'sweep_usd']);
+const TEXT_KEYS = new Set(['command', 'note']);
+const lowest = (...v) => { const l = v.filter((x) => String(x ?? '').trim() !== '' && Number.isFinite(Number(x)) && Number(x) >= 0).map(Number); return l.length ? String(Math.min(...l)) : ''; };
+/** The settings the tools use: the file's text (null when there is none) over the Actions variables in
+ *  `env`. The file names a setting, or the variable is read; the caps take the lowest. A file that is not
+ *  one JSON object of known keys, or an end time without the owner's command, switches the reviewer off.
+ *  Returns `{ env, from, problem }`: `from` says where each setting came from (file, variable, none). */
+export function settingsOf(text, env = {}) {
+  const out = { ...env }, from = {};
+  const off = (problem) => {
+    for (const k of Object.keys(SETTING_VARS)) from[k] = 'none';
+    return { env: { ...out, REVIEW_UNTIL: '', REVIEW_OFF_WHY: `the reviewer is switched off (${SETTINGS} ${problem})` }, from, problem };
+  };
+  for (const [k, v] of Object.entries(SETTING_VARS)) from[k] = String(env?.[v] ?? '').trim() ? 'variable' : 'none';
+  if (text === null || text === undefined) return { env: out, from, problem: null };
+  let f;
+  try { f = JSON.parse(String(text)); } catch { return off('is not readable JSON'); }
+  if (!f || typeof f !== 'object' || Array.isArray(f)) return off('is not one JSON object');
+  for (const [k, v] of Object.entries(f)) {
+    if (k === '$schema') continue;
+    if (!(k in SETTING_VARS) && !TEXT_KEYS.has(k)) return off(`names an unknown setting "${String(k).slice(0, 40)}"`);
+    if (CAP_KEYS.has(k) ? !(typeof v === 'number' || typeof v === 'string') : typeof v !== 'string') return off(`gives "${k}" a value of the wrong kind`);
+  }
+  if ('until' in f && !String(f.command || '').trim()) return off('gives an end time without a command line naming the owner\'s command (K055)');
+  for (const [k, v] of Object.entries(SETTING_VARS)) {
+    if (!(k in f)) continue;
+    out[v] = CAP_KEYS.has(k) ? lowest(f[k], env?.[v]) : String(f[k]).trim();
+    from[k] = 'file';
+  }
+  return { env: out, from, problem: null };
+}
+/** The settings file's text on `ref` (the default branch), or null when there is none. Any other failure
+ *  throws, so a run that cannot read it does nothing rather than fall back to a variable. */
+export async function settingsText(gh, repo, ref) {
+  if (!REPO.test(String(repo || ''))) throw new Error('repo must be owner/name');
+  const branch = String(ref || '') || String((await gh('GET', `/repos/${repo}`))?.default_branch || '');
+  if (!branch) throw new Error('the default branch is not known');
+  try { return await gh('GET', `/repos/${repo}/contents/${SETTINGS}?ref=${encodeURIComponent(branch)}`, null, { accept: 'application/vnd.github.raw+json', raw: true }); }
+  catch (e) { if (/answered 404\b/.test(String(e?.message))) return null; throw e; }
 }
 
 // --- money ------------------------------------------------------------------------------------------
@@ -389,11 +445,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     if (cmd === 'run') {
       if (!inActions && !process.env.REVIEW_API_URL) throw new Error('run works only in GitHub Actions (the harness-review job)');
       const repo = process.env.GITHUB_REPOSITORY;
-      const run = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')).workflow_run;
+      const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')), run = event.workflow_run;
+      // the settings come from the default branch, never from the pull request (K060)
+      const s = settingsOf(await settingsText(github, repo, event.repository?.default_branch), process.env);
+      if (s.problem) console.log(`review: ${s.env.REVIEW_OFF_WHY}`);
       // the access token is fetched only when a review is about to be asked for
       let token = null;
-      const ask = async (request) => { token ||= await exchange(process.env, api); return asker(token, api)(request); };
-      const out = await review({ gh: github, ask, repo, run, env: process.env, log: (m) => console.log(`review: ${m}`) });
+      const ask = async (request) => { token ||= await exchange(s.env, api); return asker(token, api)(request); };
+      const out = await review({ gh: github, ask, repo, run, env: s.env, log: (m) => console.log(`review: ${m}`) });
       console.log(`review: ${JSON.stringify(out)}`);
     } else if (cmd === 'spent') {
       const repo = arg('repo'), since = arg('since');
@@ -405,9 +464,18 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       console.log(JSON.stringify({ ...spent(l, Date.now(), since || null), caps: { usd: capOf(DAILY_USD, process.env.REVIEW_DAILY_USD), reviews: capOf(DAILY_CAP, process.env.REVIEW_DAILY_CAP) } }));
     } else if (cmd === 'switch') {
       const v = arg('until');
-      const sw = switchOf({ REVIEW_UNTIL: v === undefined ? process.env.REVIEW_UNTIL : v });
-      console.log(JSON.stringify({ variable: 'REVIEW_UNTIL', value: v === undefined ? process.env.REVIEW_UNTIL || '' : v, ...sw }));
-      if (v !== undefined && !sw.on) process.exit(1);
-    } else { console.error('usage: review.mjs run | spent --repo owner/name [--since day] | switch [--until when] (see the header)'); process.exit(2); }
+      if (v !== undefined) {
+        const sw = switchOf({ REVIEW_UNTIL: v });
+        console.log(JSON.stringify({ value: v, ...sw }));
+        if (!sw.on) process.exit(1);
+      } else {
+        // where the end time lives now: the settings file in this checkout, else the variable
+        const path = arg('file') || SETTINGS;
+        let text = null;
+        try { text = readFileSync(path, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+        const s = settingsOf(text, process.env);
+        console.log(JSON.stringify({ file: text === null ? null : path, source: s.from.until, value: s.env.REVIEW_UNTIL || '', ...(s.problem ? { problem: s.problem } : {}), ...switchOf(s.env) }));
+      }
+    } else { console.error('usage: review.mjs run | spent --repo owner/name [--since day] | switch [--until when] [--file path] (see the header)'); process.exit(2); }
   } catch (e) { console.error(`review: ${e.message}`); process.exit(1); }
 }
