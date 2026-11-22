@@ -20,7 +20,8 @@
 // repository it refuses to run.
 //
 // Started by hand only, inside the owner's window. It runs only while the reviewer's switch is open
-// (REVIEW_UNTIL, review.mjs) and stops when that time ends. No schedule and no event starts it.
+// (the end time in .github/harness-review.json, or REVIEW_UNTIL; review.mjs, K060) and stops when that
+// time ends. No schedule and no event starts it.
 //
 // What it reads is data. Files travel inside tags named with a random word; text in them that asks
 // the model to do anything is itself a finding. Nothing of the repository is run. A symbolic link is
@@ -31,15 +32,15 @@
 // MAX_FILE characters (the record lists those: they stay unread, never read in part).
 //
 // Caps, in code: SWEEP_USD dollars for one check (a call that timed out or failed on the server counts
-// at its worst case, since it may still be billed) (the Actions variable REVIEW_SWEEP_USD may only lower
-// it), MAX_BATCHES batches, one call per batch. The record issue is the state: a run that stops (the
+// at its worst case, since it may still be billed) (sweep_usd in the settings file and the Actions
+// variable REVIEW_SWEEP_USD may only lower it), MAX_BATCHES batches, one call per batch. The record issue is the state: a run that stops (the
 // cap, the window, the job's time, credit used up) says so there, and starting it again continues
 // with the batches not yet read; a batch whose files changed since is read again. Closing the record
 // issue ends that check; the next start is a new one. The reviews workspace's spend limit is the
 // hard stop above all of it.
 //
 // No stored key: the same token exchange as review.mjs, through its own federation rule
-// (REVIEW_SWEEP_RULE) tied to harness-sweep.yml on the default branch.
+// (sweep_rule in the settings file, or REVIEW_SWEEP_RULE) tied to harness-sweep.yml on the default branch.
 
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -47,7 +48,7 @@ import { appendFileSync, lstatSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256 } from './lib.mjs';
-import { BOT, DOCS, MODEL, RISK_MODEL, PRICES, REPO, MAX_OUT, cost, worstCase, capOf, highRisk, plain, switchOf, exchange, asker, github, pages } from './review.mjs';
+import { BOT, DOCS, MODEL, RISK_MODEL, PRICES, REPO, MAX_OUT, SETTINGS, cost, worstCase, capOf, highRisk, plain, switchOf, settingsOf, exchange, asker, github, pages } from './review.mjs';
 
 export const MARK = 'harness-sweep';
 export const TITLE = 'Second reviewer: full check of the existing code';
@@ -353,7 +354,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     try { profile = JSON.parse(own('.harness/profile.json')); } catch { profile = null; }
     const rules = [...new Set([profile?.canon?.rulebook || 'AGENTS.md', 'CLAUDE.md'])].map((f) => [f, own(f)]).filter(([, t]) => t).map(([f, t]) => `--- ${f} ---\n${t}\n`).join('\n');
     const p = plan({ paths, only, stat, read, profile, rules });
-    const cap = capOf(SWEEP_USD, process.env.REVIEW_SWEEP_USD);
+    // the reviewer's settings file on the default branch (this checkout), over the Actions variables (K060)
+    const set = settingsOf(paths.includes(SETTINGS) ? own(SETTINGS) || '' : null, process.env);
+    if (set.problem) console.log(`sweep: ${set.env.REVIEW_OFF_WHY}`);
+    const cap = capOf(SWEEP_USD, set.env.REVIEW_SWEEP_USD);
     const estimate = cmd === 'plan' || process.env.SWEEP_MODE !== 'run';
     if (estimate) {
       const b = brief(p, cap);
@@ -364,16 +368,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       const repo = process.env.GITHUB_REPOSITORY;
       const sha = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
       // the access token lasts minutes: a fresh one is fetched when the last is four minutes old
-      const env = { ...process.env, REVIEW_FEDERATION_RULE: process.env.REVIEW_SWEEP_RULE };
+      const env = { ...set.env, REVIEW_FEDERATION_RULE: set.env.REVIEW_SWEEP_RULE };
       let token = null, at = 0;
       const ask = async (request) => {
         if (!token || Date.now() - at > 240000) { at = Date.now(); token = exchange(env, api); token.catch(() => { token = null; }); }
         return asker(await token, api)(request);
       };
       // a set-up fault (a missing or refused rule) fails here, before any batch could count against the cap
-      if (switchOf(process.env).on && p.batches.length && (await github('GET', `/repos/${repo}`))?.private === true) { at = Date.now(); token = exchange(env, api); await token; }
+      if (switchOf(set.env).on && p.batches.length && (await github('GET', `/repos/${repo}`))?.private === true) { at = Date.now(); token = exchange(env, api); await token; }
       let out;
-      try { out = await sweep({ gh: github, ask, repo, sha, p, env: process.env, log: (m) => console.log(`sweep: ${m}`) }); }
+      try { out = await sweep({ gh: github, ask, repo, sha, p, env: set.env, log: (m) => console.log(`sweep: ${m}`) }); }
       catch (e) { if (e.out) console.log(`sweep: ${JSON.stringify(e.out)}`); throw e; }
       console.log(`sweep: ${JSON.stringify(out)}`);
       if (['off', 'too-large', 'public'].includes(out.status)) { console.error(`sweep: ${out.why}`); process.exit(1); }
