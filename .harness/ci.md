@@ -12,7 +12,18 @@ waited 5 to 38 minutes behind 13-minute test jobs on the same single runner.
 
 Every short kit job (`harness-scrub`, `-guard`, `-audit`, `-inbox`, `-review`, `-stale`, `-wake`) runs
 on `${{ vars.CHORE_RUNNER || vars.RUNNER || 'ubuntu-latest' }}`. The long `harness-sweep` stays on
-`RUNNER`. With `CHORE_RUNNER` unset nothing changes.
+`RUNNER`. With no lane set nothing changes.
+
+**Where the lane is set (K063): the profile, a reviewed change.** GitHub picks a job's runner before any
+step runs, so a workflow cannot read a file for its `runs-on`; the kit writes the setting in when it
+installs its workflows instead. `.harness/profile.json` `"chore_runner": "chores"` installs every chore
+job as `${{ (vars.CHORE_RUNNER || 'chores') || vars.RUNNER || 'ubuntu-latest' }}`: the file decides, and
+the Actions variable `CHORE_RUNNER`, when set, overrides it. To change it, edit the profile and run
+`node .harness/tools/harness.mjs lanes` in the same pull request (it rewrites the kit workflows and the
+lock); `harness.mjs status` and the audit (A04) fail while the two disagree, and every kit update or
+rollback writes the profile's lane by itself. Before rolling back below 0.56.0 (which knows no lane and
+whose schema refuses the key), remove `chore_runner` and run `lanes` first. Removing `chore_runner` and running `lanes` puts the
+templates back byte for byte. No settings page and no owner step.
 
 To open the lane on a self-hosted machine (a root step for the machine's own project, which owns its
 runners): register one more runner process for the repository with **only** the chore label, so it
@@ -23,11 +34,13 @@ takes nothing else and the test runners never take a chore:
   --name <host>-chores --no-default-labels --labels chores --unattended
 ```
 
-then set the repository's Actions variable `CHORE_RUNNER` to `chores`. Check the machine first: a
-chore process needs little (each job is a sparse checkout and one Node script), but its work folder
-and logs take disk. If the chore runner is offline, chores wait: unset `CHORE_RUNNER` to fall back to
-`RUNNER`. A public repository sets neither variable (A19 fails it: anyone could queue jobs on the
-machine by commenting); GitHub-hosted minutes are free there.
+then set `chore_runner` to `chores` in the profile and run `harness.mjs lanes` (above), in a pull
+request. Check the machine first: a chore process needs little (each job is a sparse checkout and one
+Node script), but its work folder and logs take disk. If the chore runner is offline, chores wait: a
+pull request that removes `chore_runner` falls back to `RUNNER`, but its own chore checks wait for the
+same runner, so the quick way back is the variable, set to the test runner's label (it overrides the
+file). A public repository sets no lane, in the profile or a variable (A19 fails it: anyone could queue
+jobs on the machine by commenting); GitHub-hosted minutes are free there.
 
 A private repository with no self-hosted runner runs its chores on GitHub-hosted minutes. Section 2
 cuts that count most; the rest is moving it onto a chore lane.

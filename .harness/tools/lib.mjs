@@ -19,6 +19,43 @@ export function walk(dir, base = dir) {
   return out.sort();
 }
 
+// --- the chore lane's repository setting (K063) ----------------------------------------------------
+// GitHub decides a job's runner before any step runs, so a workflow cannot read a file for its
+// `runs-on`. The kit writes the setting into its installed workflows instead: with the profile's
+// `chore_runner` set, every `vars.CHORE_RUNNER` in a kit workflow's expressions is installed as
+// `(vars.CHORE_RUNNER || '<label>')`, so the file decides and the variable, when set, overrides it.
+// Comment lines are left as they are. unrenderLane undoes it exactly (the templates never hold the
+// rendered form), so `harness.mjs lanes` and the checks can rebuild a workflow for any setting.
+export const LANE_FILE_RE = /^\.github\/workflows\/harness-[a-z0-9-]+\.ya?ml$/;
+export const LANE_LABEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const RENDERED_RE = /\(vars\.CHORE_RUNNER \|\| '([A-Za-z0-9][A-Za-z0-9._-]{0,63})'\)/g;
+const isComment = (line) => /^\s*#/.test(line);
+
+/** The profile's chore lane label, or null when it names none. Throws on a label GitHub could not use. */
+export function choreLane(profile) {
+  const v = profile?.chore_runner;
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'string' || !LANE_LABEL_RE.test(v)) throw new Error(`chore_runner ${JSON.stringify(v)} is not a runner label (${LANE_LABEL_RE})`);
+  return v;
+}
+/** A kit workflow as installed for a chore lane label (null: the template unchanged). */
+export function renderLane(text, label) {
+  if (!label) return text;
+  if (!LANE_LABEL_RE.test(label)) throw new Error(`not a runner label: ${label}`);
+  return text.split('\n').map((l) => (isComment(l) ? l : l.replace(/\bvars\.CHORE_RUNNER\b/g, `(vars.CHORE_RUNNER || '${label}')`))).join('\n');
+}
+/** The template an installed kit workflow was rendered from. */
+export function unrenderLane(text) {
+  return text.split('\n').map((l) => (isComment(l) ? l : l.replace(RENDERED_RE, 'vars.CHORE_RUNNER'))).join('\n');
+}
+/** The label an installed workflow carries (null: none), or undefined when its lines disagree. */
+export function laneIn(text) {
+  const found = new Set(text.split('\n').filter((l) => !isComment(l)).flatMap((l) => [...l.matchAll(RENDERED_RE)].map((m) => m[1])));
+  const bare = text.split('\n').some((l) => !isComment(l) && /\bvars\.CHORE_RUNNER\b(?! \|\| ')/.test(l));
+  if (found.size > 1 || (found.size === 1 && bare)) return undefined;
+  return found.size ? [...found][0] : null;
+}
+
 // --- JSON Schema: the subset profile.schema.json uses -------------------------------------------
 const typeOk = (t, v) => ({ object: v !== null && typeof v === 'object' && !Array.isArray(v), array: Array.isArray(v),
   string: typeof v === 'string', integer: Number.isInteger(v), boolean: typeof v === 'boolean', number: typeof v === 'number' }[t]);

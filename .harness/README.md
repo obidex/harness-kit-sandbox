@@ -32,8 +32,8 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Supply-chain floor (K030): `harness-guard`, a required PR check that runs gitleaks on the PR's commits and lets only the profile's `trusted_actors` change agent configuration | `tools/guard.mjs`, `templates/workflows/harness-guard.yml`; rules A17-A22 | Run, never loaded |
 | Measuring the agents (K034): GitHub numbers for the health page, the always-loaded token budget (audit C17), the replay set for rule and model changes | `metrics.md`, `tools/metrics.mjs`, `tools/load.mjs` | Lookup; tools run, never loaded |
 | Audit: structural script and judgment review | `tools/audit.mjs`, `audit/README.md` | Run, never loaded |
-| Installer and updater | `tools/harness.mjs`, workflows from `templates/workflows/` (each on the project's `RUNNER` lane, `hands.md`) | Run, never loaded |
-| CI speed (K059): a chore lane (`CHORE_RUNNER`) for the kit's short jobs, one scrub run per burst, a project's own checks scaled to the change with a nightly full run, the long test job split | `ci.md`, `tools/scope.mjs` | Lookup; tool run, never loaded |
+| Installer and updater | `tools/harness.mjs`, workflows from `templates/workflows/` (each on the project's `RUNNER` lane, `hands.md`; the profile's chore lane written in, K063) | Run, never loaded |
+| CI speed (K059, K063): a chore lane (the profile's `chore_runner`, the variable `CHORE_RUNNER` overriding it) for the kit's short jobs, one scrub run per burst, a project's own checks scaled to the change with a nightly full run, the long test job split | `ci.md`, `tools/scope.mjs` | Lookup; tool run, never loaded |
 | Kit skills: `correct` (C19 prevention ladder), `inbox` (O14 requests) | `templates/skills/<name>/`, installed as `.claude/skills/<name>/` | Loaded when named |
 
 `VERSION` is the kit version a project pins (imported by `CLAUDE.md`); cards record it. In a project,

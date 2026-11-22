@@ -113,6 +113,11 @@
         "turn_budget": { "type": "integer", "minimum": 1, "default": 60 }
       }
     },
+    "chore_runner": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+      "description": "The runner label of the chore lane (K059, K063): written into the kit's installed workflows by harness.mjs (update, lanes), so the lane is a reviewed change to this file. The Actions variable CHORE_RUNNER, when set, overrides it. Never on a public repository (A19)."
+    },
     "ci_scope": {
       "type": "object",
       "additionalProperties": false,
