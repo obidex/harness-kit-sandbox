@@ -21,7 +21,7 @@ import { readFileSync, existsSync, writeFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { parseYaml, triggers, gh, validateSchema, fileHash } from './lib.mjs';
+import { parseYaml, triggers, gh, validateSchema, fileHash, renderLane, unrenderLane, laneIn, LANE_FILE_RE } from './lib.mjs';
 import { scrub } from './scrub.mjs';
 import { plan as settingsPlan, validate as settingsValidate, SETTINGS_PATH } from './hands.mjs';
 import { loadSet, DEFAULT_BUDGET } from './load.mjs';
@@ -223,8 +223,13 @@ const checks = {
     const v = read('.harness/VERSION').trim();
     if (lock.version !== v) return [FAIL, `VERSION says ${v}, lock says ${lock.version}`];
     const drift = Object.entries(lock.files).filter(([p, h]) => !has(p) || fileHash(join(root, p)) !== h).map(([p]) => p);
-    return drift.length ? [FAIL, `kit-managed files changed or missing since install: ${short(drift.join(', '))}`]
-      : [PASS, `kit ${v} at ${lock.commit.slice(0, 12)}; ${Object.keys(lock.files).length} managed files match the lock`];
+    if (drift.length) return [FAIL, `kit-managed files changed or missing since install: ${short(drift.join(', '))}`];
+    // the profile's chore lane is written into the installed kit workflows (K063): they must say the same
+    if (profileErrors.length) return [UNKNOWN, `kit ${v}; ${Object.keys(lock.files).length} managed files match the lock; the chore lane is unchecked: the profile is invalid`];
+    const lane = profile?.chore_runner ?? null;
+    const off = Object.keys(lock.files).filter((p) => LANE_FILE_RE.test(p) && has(p)).filter((p) => { const t = read(p); return renderLane(unrenderLane(t), lane) !== t; });
+    if (off.length) return [FAIL, `the profile's chore_runner is ${lane ? `'${lane}'` : 'unset'}, but ${short(off.map((p) => `${p} says ${laneIn(read(p)) ?? 'unset'}`).join(', '))}: run node .harness/tools/harness.mjs lanes`];
+    return [PASS, `kit ${v} at ${lock.commit.slice(0, 12)}; ${Object.keys(lock.files).length} managed files match the lock${lane ? `; chore lane '${lane}' from the profile` : ''}`];
   },
   A05() {
     if (!settings) return [FAIL, 'no readable .claude/settings.json'];
@@ -601,6 +606,9 @@ const checks = {
     // a literal self-hosted label fails; the kit's `vars.RUNNER || 'ubuntu-latest'` lane, and its chore lane
     // `vars.CHORE_RUNNER || …` (K059), fail only when that variable is set (404: not set, so GitHub-hosted)
     let runnerUnknown = false;
+    if (pub && profile?.chore_runner) bad.push(`the profile names the chore lane '${profile.chore_runner}' on a public repository (K063)`);
+    // the installed workflows themselves, whatever the profile says (an invalid profile decides nothing)
+    if (pub) for (const w of workflows) { const l = laneIn(w.text); if (l !== null) bad.push(`${w.file}: installed with the chore lane ${l === undefined ? '(mixed labels)' : `'${l}'`} on a public repository (K063)`); }
     if (pub) for (const w of workflows) for (const [k, j] of w.jobs) {
       const r = runsOn(j);
       if (/self-hosted/.test(r)) bad.push(`${w.file}#${k}: a self-hosted runner on a public repository`);

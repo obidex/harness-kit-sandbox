@@ -4,7 +4,9 @@
 //   node .harness/tools/hands.mjs validate [root]           check root/.github/harness-settings.json (a PR check)
 //   node .harness/tools/hands.mjs discover                  the App's repositories and what each enrolled
 //   node .harness/tools/hands.mjs drift [--only owner/name] the enrolled repositories whose live settings differ
-//                                                           from their file (JSON on stdout); read-only
+//                                                           from their file (JSON on stdout); read-only. With
+//                                                           HANDS_MATCHED_FILE, the ones that match go there, one
+//                                                           a line (their apply alert closes, K062)
 //   node .harness/tools/hands.mjs plan  --repo owner/name   what applying the repo's settings file would change
 //   node .harness/tools/hands.mjs apply --repo owner/name   apply it; every write is printed as one line, then
 //                                                           the live settings are read back and must match
@@ -429,7 +431,7 @@ async function main() {
   if (cmd === 'drift') {
     // read-only: one job checks every enrolled repository, so an unchanged one costs no job of its own
     const only = opt('--only')?.toLowerCase();
-    const out = [];
+    const out = [], matched = [];
     let failed = 0;
     const enrolled = (await discover()).filter((x) => x.settings && (!only || x.repo.toLowerCase() === only));
     // a dispatch for a repository that is not enrolled must not pass as "applied"
@@ -438,12 +440,13 @@ async function main() {
       if (paused(r.repo)) { note(`hands: ${r.repo}: paused (HANDS_PAUSED); left alone`); continue; }
       try {
         const steps = await planRepo(r.repo, await fileOnDefault(r.repo, SETTINGS_PATH));
-        if (!steps.length) { note(`hands: ${r.repo}: matches its settings file`); continue; }
+        if (!steps.length) { note(`hands: ${r.repo}: matches its settings file`); matched.push(r.repo); continue; }
         for (const st of steps) note(`hands: ${r.repo}: drift: ${st.what}`);
         out.push(r.repo);
       } catch (e) { failed++; note(`hands: ${r.repo}: FAIL ${e.message}`); }
     }
     console.log(JSON.stringify(out));
+    if (process.env.HANDS_MATCHED_FILE) writeFileSync(process.env.HANDS_MATCHED_FILE, matched.map((x) => `${x}\n`).join(''));
     if (failed) process.exitCode = 1;
     return;
   }

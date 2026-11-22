@@ -7,6 +7,7 @@
 //   node .harness/tools/harness.mjs status                    (exit 1 if a kit-managed file drifted)
 //   node .harness/tools/harness.mjs latest                    (print the newest released kit version)
 //   node .harness/tools/harness.mjs paths                     (every path the lock, or the lock committed at HEAD, lists: what an update PR stages)
+//   node .harness/tools/harness.mjs lanes                     (write the profile's chore_runner into the installed kit workflows, K063)
 //
 // Run from the project root (or pass --root <dir>). The kit comes from --from, or from the tag
 // v<version> of $HARNESS_KIT_REPO (default https://github.com/obidex/harness-kit).
@@ -15,7 +16,12 @@
 //   .harness/**                      every kit file except profile.json and kit.lock.json
 //   .github/workflows/harness-*.yml  from the kit's .harness/templates/workflows/
 //   .claude/skills/<name>/**         from the kit's .harness/templates/skills/<name>/ (only those names)
-// Recorded with their hashes in .harness/kit.lock.json. Everything else is project-owned and never
+// Recorded with their hashes in .harness/kit.lock.json. A kit workflow is installed with the profile's
+// `chore_runner` written into its lane expressions (K063, lib.mjs renderLane); the lock records the
+// file as written. After the profile's chore_runner changes, `lanes` rewrites them; `status` fails
+// until it has. A rollback below 0.56.0 writes plain templates and its schema refuses `chore_runner`:
+// remove it and run `lanes` first. init with a lane already in the profile treats a plain copy of a
+// kit workflow as the project's own (a clash). Everything else is project-owned and never
 // written by update or rollback. init writes three project-owned files only when they are absent or
 // lack the kit: .harness/profile.json (a skeleton), CLAUDE.md (created, or the kit imports added).
 //
@@ -34,7 +40,7 @@ import { join, dirname, resolve, basename, isAbsolute, normalize } from 'node:pa
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { walk, sha256 } from './lib.mjs';
+import { walk, sha256, choreLane, renderLane, unrenderLane, laneIn, LANE_FILE_RE } from './lib.mjs';
 
 const [cmd, ...argv] = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
@@ -107,6 +113,27 @@ function managedFrom(kitDir) {
   return out;
 }
 
+/** The chore lane label the project's profile names (K063), or null. A broken profile stops the tool. */
+function projectLane() {
+  if (!existsSync(at('.harness/profile.json'))) return null;
+  let profile;
+  try { profile = JSON.parse(readFileSync(at('.harness/profile.json'), 'utf8')); } catch (e) { die(`.harness/profile.json is not JSON (${e.message}): fix it first, nothing was changed`); }
+  try { return choreLane(profile); } catch (e) { die(`.harness/profile.json: ${e.message}; nothing was changed`); }
+}
+/** A managed file's bytes as installed here: kit workflows carry the chore lane (K063). */
+const installed = (dest, src, lane) => (LANE_FILE_RE.test(dest) ? Buffer.from(renderLane(readFileSync(src, 'utf8'), lane)) : readFileSync(src));
+// the first version that writes the profile's lane; an older install carries the plain templates
+const LANES_FROM = '0.56.0';
+const knowsLanes = (lock) => VERSION_RE.test(lock?.version || '') && cmpVer(lock.version, LANES_FROM) >= 0;
+/** Installed kit workflows whose lane is not the profile's (the profile changed, `lanes` not run yet). */
+function laneDrift(lock, lane) {
+  if (!knowsLanes(lock)) return []; // an install before 0.56.0 has no lane to check (K063)
+  return Object.keys(lock.files).filter((p) => LANE_FILE_RE.test(p) && existsSync(at(p))).filter((p) => {
+    const t = readFileSync(at(p), 'utf8');
+    return renderLane(unrenderLane(t), lane) !== t;
+  });
+}
+
 /** Managed files whose content differs from the lock (edited, missing). */
 function drift(lock) {
   return Object.entries(lock.files).filter(([p, h]) => !existsSync(at(p)) || sha256(readFileSync(at(p))) !== h).map(([p]) => p);
@@ -120,15 +147,17 @@ function removeEmptyDirs(dir) {
 /** Write the kit's managed files; remove ones the previous lock had that the new kit dropped. */
 function apply(kit, oldLock) {
   const files = managedFrom(kit.dir);
+  // a version before 0.56.0 knows no lane: its workflows go in as its templates are (K063)
+  const lane = VERSION_RE.test(kit.version) && cmpVer(kit.version, LANES_FROM) < 0 ? null : projectLane();
   // A path the kit now claims that the project already holds, and the previous lock did not list,
   // is the project's file: refuse rather than overwrite it (init adopts an identical copy).
   const clash = Object.entries(files).filter(([dest, src]) => existsSync(at(dest)) && !(dest in (oldLock?.files || {}))
-    && sha256(readFileSync(at(dest))) !== sha256(readFileSync(src))).map(([dest]) => dest);
+    && sha256(readFileSync(at(dest))) !== sha256(installed(dest, src, lane))).map(([dest]) => dest);
   if (clash.length) { kit.cleanup(); die(`these project files sit where kit ${kit.version} installs its own; move or rename them first, nothing was changed:\n  ${clash.join('\n  ')}`); }
   const hashes = {};
   let added = 0, changed = 0, removed = 0;
   for (const [dest, src] of Object.entries(files)) {
-    const buf = readFileSync(src);
+    const buf = installed(dest, src, lane);
     hashes[dest] = sha256(buf);
     if (!existsSync(at(dest))) added++;
     else if (oldLock?.files?.[dest] !== hashes[dest]) changed++;
@@ -282,7 +311,31 @@ switch (cmd) {
     if (!lock) die('the kit is not installed here');
     const d = drift(lock);
     if (d.length) { console.log(`harness: kit ${lock.version}: ${d.length} managed file(s) drifted:\n  ${d.join('\n  ')}`); process.exit(1); }
-    say(`kit ${lock.version} (${lock.commit.slice(0, 12)}): ${Object.keys(lock.files).length} managed files match the lock`);
+    const lane = knowsLanes(lock) ? projectLane() : null;
+    const ld = laneDrift(lock, lane);
+    if (ld.length) { console.log(`harness: the profile's chore_runner is ${lane ? `'${lane}'` : 'unset'}, but ${ld.length} kit workflow(s) were installed for another lane; run: node .harness/tools/harness.mjs lanes\n  ${ld.join('\n  ')}`); process.exit(1); }
+    say(`kit ${lock.version} (${lock.commit.slice(0, 12)}): ${Object.keys(lock.files).length} managed files match the lock; chore lane ${lane ? `'${lane}' from the profile` : 'from the variables only'}`);
+    break;
+  }
+  case 'lanes': {
+    // the one way besides update that writes a kit file here: the same templates, the profile's lane (K063)
+    const lock = readLock();
+    if (!lock) die('the kit is not installed here');
+    if (!knowsLanes(lock)) die(`the installed kit ${lock.version} does not write a chore lane (from ${LANES_FROM}, K063): update it first`);
+    const d = drift(lock);
+    if (d.length) die(`kit-managed files were edited in this project; restore them first:\n  ${d.join('\n  ')}`);
+    const lane = projectLane();
+    const done = [];
+    for (const p of Object.keys(lock.files).filter((f) => LANE_FILE_RE.test(f))) {
+      const t = readFileSync(at(p), 'utf8');
+      const out = renderLane(unrenderLane(t), lane);
+      if (out === t) continue;
+      writeFileSync(at(p), out);
+      lock.files[p] = sha256(Buffer.from(out));
+      done.push(`${p} (${laneIn(t) ?? 'variables only'} → ${lane ?? 'variables only'})`);
+    }
+    if (done.length) writeFileSync(at(LOCK), `${JSON.stringify(lock, null, 2)}\n`);
+    say(`chore lane ${lane ? `'${lane}' from the profile, the variable CHORE_RUNNER overriding it when set` : 'from the variables only'}: ${done.length ? `rewrote ${done.length} kit workflow(s) and the lock:\n  ${done.join('\n  ')}` : 'every kit workflow already matches'}`);
     break;
   }
   case 'paths': {
@@ -304,5 +357,5 @@ switch (cmd) {
     break;
   }
   default:
-    die('usage: harness.mjs init|update|rollback|status|latest|paths  (see the header of this file)');
+    die('usage: harness.mjs init|update|rollback|status|latest|paths|lanes  (see the header of this file)');
 }

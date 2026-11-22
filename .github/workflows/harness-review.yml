@@ -27,7 +27,7 @@
 # paths; and one short job per finished workflow listed below. On a private repository without a
 # self-hosted CHORE_RUNNER or RUNNER the job starts only when the variables REVIEW_FEDERATION_RULE and
 # REVIEW_UNTIL are both set, as before K060, so it adds no GitHub-hosted minutes (about 1 a run; up to 3
-# while it waits); such a repository is switched on by its variable, and the file can only shorten it.
+# while it waits); there the variables, set to any value, let the job start, and the file's until decides.
 # A pull-request workflow with another name starts nothing here: its checks are seen only when they
 # finish within 90 seconds of a listed one.
 name: harness-review
