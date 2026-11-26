@@ -35,7 +35,9 @@ each run is short and fresh: it starts on an event, reads the state, acts, write
    job opened counts; closed, it is reopened. Runs keep the marker line when they rewrite the body. It
    holds no count and no lock: if it is lost, the job opens a new one and every cap still holds.
 6. **State that cannot go stale (K042).** Everything volatile lives in the STATE issue and nowhere
-   else: Now, Next, what waits with its wake, what needs the owner, the last five results. It is
+   else: Now, Next, what waits with its wake, what needs the owner, the last five results, and one
+   line on which models its threads used since the last rewrite (O06, K066: `Models: <thread or card>
+   <model>, …`, so a model mix that drains the weekly limit shows before it stops work). It is
    rewritten at the end of every coordinator run, with no PR. The repository's state file
    (`canon.state`, usually `docs/STATE.md`) keeps only slow facts (programme, live flags, endpoints,
    plans): no counts, "last updated" dates, commit SHAs, kit versions or "built since" lists; each
@@ -114,17 +116,35 @@ A repository whose coordinator keeps its STATE issue by hand is read through the
 `coordinator-state`; one with no STATE issue gets `NOTHING`.
 
 **Counts and stops.** A hand-off receipt counts as a run in every cap, and its failed start as a
-failed start, when its author may write to the repository (owner, member or collaborator); a
-stranger's comment counts for nothing. A hand-off sets no stop and lifts none, `backstop-off`
+failed start, when its author may write to the repository; a stranger's comment counts for nothing.
+"May write" is read from GitHub, not from the comment (K065): the owner counts; a member of the owning
+organization or a collaborator counts only when the collaborator permission endpoint gives write,
+maintain or admin (read once per author; a read that fails stops the decision, as a cut-off listing
+does). A member or an outside collaborator who may only read or triage counts for nothing. A hand-off sets no stop and lifts none, `backstop-off`
 included (only a run the job fires re-arms the backstop): paused, stopped or capped, it queues. It
 is an outside wake, so it ends a chain of runs that only started each other. No timer is added: a
 hand-off happens at the moment work changes hands, or not at all.
 
 **Two starts at the same moment.** A session is outside the job's one-at-a-time queue, so after its
-receipt the hand-off waits a few seconds and reads the receipts again. Beside a receipt of the job
-it always yields; between two hand-offs the earlier receipt keeps the run. The one that yields
-starts nothing, leaves the claim alone and prints `QUEUED`. `--failed` releases only the start for
-the same item, and only within 30 minutes of it.
+receipt the hand-off waits 10 seconds and reads the receipts again. Beside a receipt of the job
+written within the settle time (8 s) after its own it yields; between two hand-offs the earlier receipt keeps the run. The one that
+yields starts nothing, leaves the claim alone and prints `QUEUED`. `--failed` releases only the start
+for the same item, and only within 30 minutes of it.
+
+**The job and a hand-off: one rule (K064).** Each receipt names the newest receipt its writer read
+(`seen`). When neither had read the other's, the hand-off keeps the run if the job's receipt came more
+than the settle time after its own, or if the hand-off had read the job's receipt itself; otherwise it
+yields as above. GitHub gives a comment's time in whole seconds, so the hand-off reads 2 s after the
+settle time: every receipt the rule makes it yield to exists by then. A start the hand-off released
+(`--failed`, whose mark names the receipt) before the job's receipt keeps nothing. The job applies the
+same rule right after writing its receipt: when a hand-off keeps the run, the job backs off. It touches no claim, starts nothing, notes it on the STATE issue, and the
+`wake` label waits for that run; its receipt still counts in the caps. A job that cannot read the
+receipts back (three tries of the repository listing, then the STATE issue's own comments) fails
+closed: its receipt is marked failed, it starts nothing and leaves the claim as it is, so wakes wait
+until the claim is released or counts as dead (6 hours). `wake.mjs started` judges by the
+same rule from the receipts alone, so the run a backed-off receipt could begin is refused even before
+the job's note lands. Receipts from before K064 never make the job back off: such pairs behave as
+before.
 
 **Where the job's outside call is refused**, a queued label or a released claim still starts the
 job, and its failed starts add up to `wake-paused` as before. A hand-off then only queues until a
@@ -147,7 +167,8 @@ The scheduled task's saved prompt says this. Each run:
 2. Works the queue under the project's rules (`core.md`, the rulebook). It removes `wake` from each
    issue it has handled. It may set `wake` on an issue to hand work to the next run. That counts
    against the same caps.
-3. Writes the STATE issue body: what changed, what is open, the next action and who owns it.
+3. Writes the STATE issue body: what changed, what is open, the next action and who owns it, and
+   the models its threads used (§6).
 4. Removes `coordinator-running` from the STATE issue as its last GitHub step, then ends. A run that
    cannot finish writes why in STATE and still removes the claim. A run never opens a new issue only
    to continue its own work past the per-issue cap.
@@ -204,7 +225,8 @@ What differs from `/fire`:
   starts its run with `fire_trigger`; `wake.mjs started` refuses a start whose newest receipt is a
   hand-off's, so the run the label began ends at once and one hand-off is one working run. A hand-off
   that yielded to a job receipt it had not read (its receipt names the newest it read, `seen`) started
-  nothing: `started` passes over it and the job's start works.
+  nothing: `started` passes over it and the job's start works. A job receipt that backed off from a
+  hand-off that kept its start (K064) is passed over the same way: one hand-off, one working run.
 - **The run needs GitHub write access** to run `started` (it writes the "Run started" comment): in a
   cloud session, the repository attached with push access. Without it every label start is refused.
 - **A label set by the job's own token does start the task.** GitHub starts no workflow for such a
@@ -215,7 +237,7 @@ What differs from `/fire`:
   started` passes only when the job's newest receipt is a start at most 15 minutes old, the claim
   sits on the STATE issue, and no run has taken that start yet (its "Run started" comment; of two
   runs racing, the older comment wins; only a comment from an account that may write to the
-  repository counts, so a stranger's comment refuses nothing). The command needs a token that may
+  repository counts, read as for a hand-off (K065), so a stranger's comment refuses nothing). The command needs a token that may
   comment. So one receipt is one working run, also when the claim is
   put back inside the 15 minutes. A forged claim costs one session that ends in seconds, and it blocks
   further runs like any claim until it is removed or 6 hours pass.

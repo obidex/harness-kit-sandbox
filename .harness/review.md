@@ -128,7 +128,10 @@ is the stop across repositories; the in-code caps stop one repository from using
 A typical review (25,000 tokens in, 4,000 out) costs about $0.09 on the default model and $0.18 on
 the high-risk one. `node .harness/tools/review.mjs spent --repo <owner/name>` prints today's count
 and cost; with `--since <YYYY-MM-DD>` it prints every day's from that day on, for the report that
-follows a switched-on period.
+follows a switched-on period. A pull request's comment keeps only its last 60 runs, so when one is full
+and its oldest kept run falls inside the period, the answer carries `"partial": true` and those pull
+requests (`pulls`): the figure is then a floor, and the reviews workspace's own spend figure on the
+Claude Console is the authority.
 
 Runner minutes: one short job per finished pull-request workflow the file lists, on the project's
 `RUNNER` lane (`hands.md`); it may wait up to 90 seconds for other checks.
@@ -173,6 +176,15 @@ the owner asks for it: every tracked code file of the default branch, folder by 
   It reads the settings file from its own checkout of the default branch.
 - **Runner:** one job of up to 350 minutes on the project's `RUNNER` lane, which holds that runner
   meanwhile; on GitHub-hosted minutes only after the owner has heard the estimate (O13).
+
+**A specialist pass (K068)** is the same job with its `lens` input set to one of `permissions`,
+`money-stock`, `irreversible`, `arabic-rtl` or `weakened-tests` (K069: assertions loosened, expected
+values copied from the output, skipped or empty tests, mocks of the code under test, tolerances widened
+to hide a failure; C08 read back over the tests that exist): the question is narrowed to that lens, every batch goes to
+the high-risk model, and the pass keeps its own record issue ("Second reviewer: specialist pass (<lens>)
+of the existing code") and its own $30 cap, so it never continues or uses up the full check. The lens is
+a fixed choice: no text a person types reaches the question. `estimate` with a lens prints that pass's
+worst case first.
 
 Like the reviewer it cannot run code and sees one batch at a time, so a finding that depends on
 another folder says so, and "no findings" is not evidence that the code works (C07).

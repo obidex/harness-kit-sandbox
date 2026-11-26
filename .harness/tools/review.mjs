@@ -4,7 +4,8 @@
 //   node .harness/tools/review.mjs run      in Actions only (the project's harness-review job)
 //   node .harness/tools/review.mjs spent --repo owner/name [--since YYYY-MM-DD]
 //                                            today's reviews and their cost (or every day's from a date
-//                                            on), from the review comments (JSON)
+//                                            on), from the review comments (JSON); "partial": true
+//                                            names the pull requests whose oldest runs may be cut
 //   node .harness/tools/review.mjs switch [--until 2026-11-30T23:59+03:00] [--file path]
 //                                            says whether the reviewer is on, until when, and where its
 //                                            end time lives (the settings file or the Actions variable);
@@ -61,6 +62,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { ghClient, ghPages } from './lib.mjs';
 
 export const MARK = 'harness-review';
 export const MODEL = 'claude-sonnet-5-5', RISK_MODEL = 'claude-opus-5-5';
@@ -70,7 +72,7 @@ export const DAILY_USD = 2.5, DAILY_CAP = 40;
 export const MAX_DIFF = 150000, MAX_FILES = 300, MAX_RULES = 40000, MAX_PR_TEXT = 4000, MAX_OUT = 8000, MAX_ANSWER = 6000;
 export const WAIT_MS = 90000, POLL_MS = 15000;
 export const BOT = 'github-actions[bot]';
-const KEEP_RUNS = 60;   // more than DAILY_CAP: one pull request's record can never drop a run made today
+export const KEEP_RUNS = 60;   // more than DAILY_CAP: one pull request's record can never drop a run made today
 // agent configuration and automation are high-risk in every project (C09 tier 3)
 const ALWAYS_RISKY = ['.github/**', '.harness/**', '.claude/**', 'CLAUDE.md', 'AGENTS.md', '.mcp.json', '**/migrations/**'];
 export const DOCS = /(^|\/)(LICEN[CS]E|NOTICE|CHANGELOG|README)(\.[a-z]+)?$|\.(md|mdx|txt|rst|png|jpe?g|gif|svg|webp|pdf)$/i;
@@ -216,18 +218,31 @@ export function runUsd(r) {
   if (PRICES[r?.model] && n.every((x) => Number.isInteger(x) && x >= 0 && x < 1e8)) return cost(r.model, { input_tokens: n[0], output_tokens: n[1] });
   return worstCase(RISK_MODEL, MAX_DIFF + MAX_RULES + MAX_PR_TEXT);
 }
+/** The pull request a repository-wide issue comment belongs to (its number), or its link when unknown. */
+const pullOf = (c) => { const m = String(c?.issue_url || '').match(/\/issues\/(\d+)$/); return m ? Number(m[1]) : (c?.html_url ?? null); };
 /** Today's reviews in a repository's comments: how many called a model, and what they cost. With
- *  `since` (a UTC day), every day's from that day on instead, for a report. */
+ *  `since` (a UTC day), every day's from that day on instead, for a report. A record holds only its
+ *  pull request's last KEEP_RUNS runs: when one is full and its oldest kept run falls inside the period
+ *  (or cannot be read), older runs of the period may have been dropped, so the sum is a floor and the
+ *  answer says so (`partial`, with those pull requests in `pulls`). */
 export function spent(comments, now = Date.now(), since = null) {
-  const day = new Date(now).toISOString().slice(0, 10);
+  const day = new Date(now).toISOString().slice(0, 10), from = since || day;
   let usd = 0, reviews = 0;
-  for (const c of comments) for (const r of record(c)?.runs || []) {
-    const d = String(r.at || '').slice(0, 10);
-    if ((since ? d < since || d > day : d !== day) || !r.model) continue;
-    reviews++;
-    usd += runUsd(r);
+  const pulls = [];
+  for (const c of comments) {
+    const runs = record(c)?.runs || [];
+    if (runs.length >= KEEP_RUNS) {
+      const days = runs.map((r) => String(r?.at || '').slice(0, 10));
+      if (days.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d)) || days.reduce((a, b) => (b < a ? b : a)) >= from) pulls.push(pullOf(c));
+    }
+    for (const r of runs) {
+      const d = String(r.at || '').slice(0, 10);
+      if ((since ? d < since || d > day : d !== day) || !r.model) continue;
+      reviews++;
+      usd += runUsd(r);
+    }
   }
-  return { ...(since ? { since } : {}), day, reviews, usd: Math.round(usd * 1e4) / 1e4 };
+  return { ...(since ? { since } : {}), day, reviews, usd: Math.round(usd * 1e4) / 1e4, ...(pulls.length ? { partial: true, pulls } : {}) };
 }
 
 // --- the checks -------------------------------------------------------------------------------------
@@ -279,16 +294,9 @@ export function verdict(msg) {
 
 // --- one run ----------------------------------------------------------------------------------------
 export const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-export const pages = async (gh, path, key, max) => {
-  const out = [];
-  for (let page = 1; page <= max; page++) {
-    const r = await gh('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-    const l = key ? r?.[key] || [] : r || [];
-    out.push(...l);
-    if (l.length < 100) return out;
-  }
-  return null;   // more than max pages: the caller decides, never a partial list taken for whole
-};
+/** Every item of a listing, or null when it is longer than `max` pages: the caller decides, never a
+ *  partial list taken for whole. */
+export const pages = async (gh, path, key, max = 0) => { const { items, cut } = await ghPages(gh, path, { key, max }); return cut ? null : items; };
 const file = async (gh, repo, path, ref) => { try { return await gh('GET', `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`, null, { accept: 'application/vnd.github.raw+json', raw: true }); } catch { return null; } };
 
 /** Review one finished pull-request workflow run. `gh(method, path, data, opts)` reaches GitHub,
@@ -392,18 +400,8 @@ export async function review({ gh, ask, repo, run, env = {}, now = () => Date.no
 }
 
 // --- GitHub and the API -----------------------------------------------------------------------------
-export async function github(method, path, data, { accept, raw } = {}) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: { accept: accept || 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-review',
-      ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const text = await r.text();
-  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path.split('?')[0]} answered ${r.status}: ${text.slice(0, 200)}`);
-  if (raw) return text;
-  try { return text ? JSON.parse(text) : null; } catch { return text; }
-}
+/** GitHub with GH_TOKEN: `(method, path, data, { accept, raw })`, throws on any answer but 2xx. */
+export const github = ghClient('harness-review');
 const ID = { rule: /^fdrl_[A-Za-z0-9]+$/, org: /^[0-9a-f-]{36}$/, account: /^svac_[A-Za-z0-9]+$/, workspace: /^wrkspc_[A-Za-z0-9]+$/ };
 /** The four identifiers, checked for shape (they travel in a request body, never in a URL). */
 export function identifiers(env) {

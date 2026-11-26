@@ -35,6 +35,7 @@ import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { footerLines } from './scrub.mjs';
+import { ghClient, ghPages } from './lib.mjs';
 
 /** Paths whose content agents load or execute. */
 // .github/ too: a PR that edits its own workflows could replace this very check (it runs from the PR's
@@ -87,22 +88,13 @@ export function verdict({ pr, commits, files, trusted }) {
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
-async function get(path) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-guard', ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}) },
-  });
-  if (r.status !== 200) throw new Error(`GET ${path} answered ${r.status}`);
-  return r.json();
-}
+const github = ghClient('harness-guard');
+const get = (path) => github('GET', path);
 async function all(path, cap) {
-  const out = [];
-  for (let page = 1; page <= cap; page++) {
-    const l = await get(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-    out.push(...l);
-    if (l.length < 100) return out;
-  }
+  const { items, cut } = await ghPages(github, path, { max: cap });
   // a PR larger than GitHub lists (3,000 files, 250 commits) is refused rather than judged in part
-  throw new Error(`${path} has more than ${cap * 100} entries; refusing to judge it in part`);
+  if (cut) throw new Error(`${path} has more than ${cap * 100} entries; refusing to judge it in part`);
+  return items;
 }
 
 const argv = process.argv.slice(2);

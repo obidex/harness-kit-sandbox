@@ -156,6 +156,7 @@ const commitLog = (n) => git('log', `-${n}`, '--format=%H%x1f%an%x1f%s%x1f%b%x1e
 // --- the baseline: the project's accepted FAILs (whole rules) and known commit exceptions -------------
 // An entry with `commits` (each a SHA of 7+ characters) is a known exception, not an accepted rule: the
 // rule skips exactly those commits (history that is never rewritten) and still FAILs on any other.
+// Honoured by A10, O09 and C17's lost-lines test (K067).
 const basePath = opt('--baseline') ? resolve(opt('--baseline')) : join(root, '.harness/audit-baseline.json');
 let baseline = [];
 try { baseline = existsSync(basePath) ? JSON.parse(readFileSync(basePath, 'utf8')).results || [] : []; } catch (e) { if (flags.has('--strict')) throw e; }
@@ -402,6 +403,7 @@ const checks = {
   C17() {
     if (!profile) return [UNKNOWN, 'no valid profile, so canon files and caps are unknown'];
     const problems = [];
+    let lostNote = '';
     for (const [f, max] of Object.entries(profile.canon.caps || {})) {
       if (!has(f)) { problems.push(`${f} missing`); continue; }
       const n = Buffer.byteLength(read(f));
@@ -415,9 +417,13 @@ const checks = {
     const d = profile.canon.decisions;
     if (!has(d)) problems.push(`decisions file ${d} missing`);
     else {
-      const diff = git('log', '-50', '-p', '--format=%x1e%h', '--', d) || '';
-      const removing = diff.split('\x1e').filter((c) => c.split('\n').some((l) => /^-[^-]/.test(l) && l.trim() !== '-')).map((c) => c.trim().slice(0, 7));
-      if (removing.length) problems.push(`${d} lost lines in ${removing.length} of its recent commits (${removing.slice(0, 5).join(', ')}): append-only needs judgment`);
+      // a commit the baseline lists for C17 (K067: the closed log's entry moved word for word into its own
+      // file, as decisions.md prescribes) is skipped by this test only; any other line lost still FAILs
+      const diff = git('log', '-50', '-p', '--format=%x1e%H', '--', d) || '';
+      const { kept, note } = exceptCommits('C17', diff);
+      const removing = kept.filter((c) => c.split('\n').some((l) => /^-[^-]/.test(l) && l.trim() !== '-')).map((c) => c.trim().slice(0, 7));
+      if (removing.length) problems.push(`${d} lost lines in ${removing.length} of its recent commits (${removing.slice(0, 5).join(', ')}): append-only needs judgment${note}`);
+      else lostNote = note;
     }
     // one file per decision (K052): names, numbers used once, the log closed; a written file is never edited
     {
@@ -438,7 +444,7 @@ const checks = {
     for (const g of profile.canon.generated || []) if (!has(g)) problems.push(`generated ${g} missing`);
     const drift = (profile.canon.generated || []).length && /git diff --exit-code|--check|drift/i.test(wfText);
     if ((profile.canon.generated || []).length && !drift) problems.push('no CI drift check for generated references found');
-    return problems.length ? [FAIL, short(problems.join('; '), 500)] : [PASS, `caps hold (${Object.keys(profile.canon.caps || {}).length} files); always-loaded set about ${load.tokens} of ${budget} tokens; ${d} only gained lines in its last 50 commits; generated references have a drift check`];
+    return problems.length ? [FAIL, short(problems.join('; '), 500)] : [PASS, `caps hold (${Object.keys(profile.canon.caps || {}).length} files); always-loaded set about ${load.tokens} of ${budget} tokens; ${d} only gained lines in its last 50 commits${lostNote}; generated references have a drift check`];
   },
 
   // ---- owner defaults

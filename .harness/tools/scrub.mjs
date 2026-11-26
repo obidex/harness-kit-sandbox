@@ -23,6 +23,7 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { ghClient, ghPages } from './lib.mjs';
 
 // Line-level: only a footer- or trailer-shaped line goes, never a sentence that merely mentions it.
 const GENERATED = /^[ \t]*(?:[^\w\s]{1,4}[ \t]{0,4})?[_*]{0,2}[ \t]{0,4}generated[ \t]{1,4}(?:by|with)[ \t]{1,4}\[?claude[ \t_-]{0,2}code\b/i;
@@ -99,19 +100,8 @@ export function target(name, p) {
   return null;
 }
 
-async function api(method, path, body) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: {
-      accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-kit-scrub',
-      authorization: `Bearer ${process.env.GITHUB_TOKEN}`, ...(body ? { 'content-type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await r.text();
-  if (!r.ok) { const e = new Error(`${method} ${path} answered ${r.status}: ${text.slice(0, 200)}`); e.status = r.status; throw e; }
-  return JSON.parse(text);
-}
+// the workflow's own token (GITHUB_TOKEN), never a session's GH_TOKEN
+const api = ghClient('harness-kit-scrub', { token: () => process.env.GITHUB_TOKEN });
 
 /** Workflows whose failed run on a PR's head the scrubber starts again after it removes a footer (K044). */
 export const RERUN = new Set(['harness-guard', 'hands-check', 'check']);
@@ -185,13 +175,8 @@ export function sweepSince(runs, { repo, currentId, now, notBefore }) {
 
 /** Every item of a paged listing, at most SWEEP_PAGES pages; `capped` says a page limit was met. */
 async function pages(path, get = api) {
-  const items = [];
-  for (let page = 1; page <= SWEEP_PAGES; page++) {
-    const got = await get('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-    items.push(...(got || []));
-    if (!got || got.length < 100) return { items, capped: false };
-  }
-  return { items, capped: true };
+  const { items, cut } = await ghPages(get, path, { max: SWEEP_PAGES });
+  return { items, capped: cut };
 }
 
 /**

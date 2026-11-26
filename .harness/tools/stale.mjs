@@ -60,7 +60,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseInbox, WAKE_BRANCHES } from './inbox.mjs';
-import { parseYaml } from './lib.mjs';
+import { parseYaml, ghClient, ghPages } from './lib.mjs';
 import { TOPICS, raise, resolveKey, store, telegram, opsBoard, localTime } from './notify.mjs';
 
 export const MARKER = '<!-- harness-stale -->';
@@ -236,29 +236,8 @@ export function stateFreshness({ updatedAt, merges = [], now = Date.now(), limit
 export const stateText = (repo, f) => `State out of date in ${repo}: #${f.number} was last written ${idleText(f.hours)} ago and ${f.merges} pull request${f.merges === 1 ? '' : 's'} merged since (threshold ${f.limit} h). A coordinator run rewrites it as its last step.`;
 
 // --- GitHub ---------------------------------------------------------------------------------------
-async function api(method, path, data) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-stale',
-      ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const text = await r.text();
-  let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { json = text; }
-  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path} answered ${r.status}: ${JSON.stringify(json).slice(0, 300)}`);
-  return json;
-}
-
-async function pages(path, max = 30) {
-  const out = [];
-  for (let page = 1; page <= max; page++) {
-    const l = await api('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
-    out.push(...l);
-    if (l.length < 100) break;
-  }
-  return out;
-}
+const api = ghClient('harness-stale');
+const pages = async (path) => (await ghPages(api, path, { max: 30 })).items;
 
 /** Every stale item of the repository now. */
 export async function scan(repo, now = Date.now(), s = settings(loadData())) {
