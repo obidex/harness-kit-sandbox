@@ -223,6 +223,11 @@
           "items": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9.,:;#()/_'-][A-Za-z0-9 .,:;#()/_'-]*$" }
         }
       }
+    },
+    "papercuts": {
+      "description": "Optional. The private issue this project's papercuts go to, owner/name#N (C28, K070; .harness/tools/papercut.mjs). Unset: the repository's own open issue labelled `papercut`, opened by the tool's first report. Never an issue in a public repository.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+$"
     }
   }
 }
