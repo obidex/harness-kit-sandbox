@@ -44,14 +44,31 @@
 
 ## Working in a session
 
-- **A06 Wait on a watcher or a reminder.** After a push, start a background watcher that polls CI
-  and prints one line (`PASSED`, `FAILED: <job>`, `STUCK`, `TIMEOUT`), then end the turn; the line
-  wakes the session. A PR activity subscription is not a wait: a green check or a comment that lands
-  mid-turn may never wake you. When no watcher covers the wait (a review, another thread, a run past
-  the watcher's timeout), set one `send_later` self-reminder to this session at the expected finish;
-  at most three per wait (C25), each recorded on the card (C22) and deleted at DONE (C23). Never wait
-  by sleeping in conversation. A wait past the prompt-cache window (about an hour) leaves a C04
-  handover and ends.
+- **A06 After a pull request opens: auto-fix, auto-merge, one net (K069).** Every project, the same.
+  - *Auto-fix.* The thread that opens a PR subscribes to its activity (`subscribe_pr_activity`, what
+    the settings page calls auto-fix: a project thread's own instructions say to, so it is on by default
+    in every project). A failing check, a review or a comment then wakes it.
+  - *Auto-merge.* Once only the checks remain (the current commit's review done, C10, with a re-review
+    after a later commit; the tier-3 line in the body, A12; no finding open), it turns on GitHub
+    auto-merge, squash, where the repository's settings file allows it (`allow_auto_merge: true` with
+    `squash_merge_commit_message: "BLANK"`, so no default body carries a trailer, O09). GitHub then
+    merges on the required checks and no thread waits for green. Before any later push it turns
+    auto-merge off, and on again only once the new commit has cleared the same gate. Under a strict
+    check rule it brings a branch that fell behind up to date on the server (A10). Where auto-merge
+    is off or the tool fails, it merges by hand on green (A10), as before.
+  - *Comments.* A bot's or a reviewer model's comment is a claim: check it in the code first (O07). A
+    small change asked for is made; one that widens the scope or changes the design is answered on the
+    PR and escalated to the coordinator, not built (C06). An advisory second reviewer comments only once
+    the checks are green, so with auto-merge on its comment can land after the merge: its points still
+    end FIXED, TRACKED or DISMISSED, as a follow-up PR or card where needed (O07). Three pushes for the same failing check or
+    comment, and the thread stops, says on the PR what it tried and hands it to the coordinator (C24).
+  - *One net.* A subscription alone is not a wait: an event that lands mid-turn may never wake you.
+    So a turn that ends with the PR open also leaves one net: a background watcher that polls CI and
+    prints one line (`PASSED`, `FAILED: <job>`, `STUCK`, `TIMEOUT`), or, when none covers the wait (a
+    review, another thread, a run past the watcher's timeout), one `send_later` self-reminder to this
+    session at the expected finish; at most three per wait (C25), each recorded on the card (C22) and
+    deleted at DONE (C23). The merge itself wakes the thread for C13. Never wait by sleeping in
+    conversation. A wait past the prompt-cache window (about an hour) leaves a C04 handover and ends.
 - **A07 Context budget.** Compact before about 200k tokens. Noisy steps (install, build, lint,
   test) write to a log file and print only exit code and summary; read the log only on failure.
 - **A08 Push coherent changes.** Push once quick checks pass, not several unfinished pushes: each
@@ -73,17 +90,16 @@
   several-repository project on 7-8 Oct 2026: nine refusals, every one a shell edit or a shell
   command after one; eleven file-tool edits of rule files in one thread, none refused. A refused
   shell edit is still reported (C14).
-- **A23 Name the model and the effort on every thread.** O06's roles, named as of Nov 2026: building
-  on the smallest reliable model (Sonnet 5.5 for clear, bounded work); Opus 5.5 for architecture,
-  accounting, security, hard or risky work, whatever the tier, and preferred for tier-3 review
-  (C10, O07); Haiku 5.5 only for reading logs and summarizing when that saves real work, never for
+- **A23 Name the model and the effort on every thread.** O06's roles, named as of 25 Nov 2026 (K066):
+  every builder thread on Opus 5.5; Fable 5.2 only for a coordinator's planning, tier 3 and independent
+  review (C10, O07); Haiku 5.5 only for reading logs and summarizing when that saves real work, never for
   review or for money, stock or permission code, and named on every scheduled helper task (a daily
   start, a check-in, a kickoff) so a weekly limit on the account default cannot stop it. Plain status stays on existing checks, with no
   extra turn. Effort (Anthropic's guidance, K049; facts in `models.md`): low for a log digest
   or a quick helper, medium where results hold, high for hard work and long unattended runs, xhigh or
   max only where a gain was measured. A subagent is named with its model and effort, or it inherits
-  the thread's. The coordinator names both when it starts a thread; only the coordinator switches a
-  thread's model. A long thread hands over (C04) and starts clean (`/clear`, or a fresh thread) rather
+  the thread's. The coordinator names both when it starts a thread, and its state note names the models
+  used; only the coordinator switches a thread's model. A long thread hands over (C04) and starts clean (`/clear`, or a fresh thread) rather
   than compacting a cold context. The coordinator reads `/usage` once a week and puts one line in the
   weekly brief.
 - **A24 The one-time permission line.** When a step on an approved, reviewed card is stopped by a
@@ -161,7 +177,7 @@
 | A03 | the project uses skills or subagents | Review subagents declare read-only tools and a model. | ERP .claude/agents · D282; WEB .claude/agents | script: agent files in review roles have `tools:` without write tools and a `model:`. |
 | A04 | always | Kit files are present as a pinned copy with a recorded version. | K001 | script: `harness.mjs status`: `.harness/VERSION` matches the lock and every managed file matches its hash. |
 | A05 | always | Settings are project-edited only; sessions cannot edit them. | K001; ERP settings · D289; WEB CLAUDE.md · W138 | script: settings deny edits to themselves and admin merges. judgment: settings changes came through owner or reviewed PR. |
-| A06 | a session waits on CI or another event | Waits end the turn on a watcher or one `send_later` self-reminder at the expected finish (at most three per wait); no conversation polling; handovers for long waits; reminders deleted at DONE. | ERP run-card §7, wait-for script · D258; WEB run-card §7 · W221; K020 | script: a watcher script exists with a self-test. judgment: sampled threads ended waiting turns on a watcher or a reminder, and no reminder outlived its card. |
+| A06 | a session opens a PR, or waits on CI or another event | The thread subscribed to its PR's activity when it opened it; GitHub auto-merge (squash) was turned on only once nothing but the checks remained, only where the settings file allows it with a blank default squash body, and was off across any later push until that commit cleared the same gate; where it was off the thread merged by hand on green; a bot's or reviewer model's comment was checked in the code before acting, scope or design asks were answered and escalated, not built, and a fourth push for the same failing check or comment did not happen (the coordinator had it); waits still ended the turn on a watcher or one `send_later` self-reminder at the expected finish (at most three per wait); no conversation polling; handovers for long waits; reminders deleted at DONE. | ERP run-card §7, wait-for script · D258; WEB run-card §7 · W221; K020; K069 (owner-approved roadmap #194: Claude Ship's rules for open pull requests) | script: a watcher script exists with a self-test; `hands.mjs validate` refuses a settings file that allows auto-merge with a squash default body other than blank; `metrics.mjs` reports how long merged agent PRs sat green. judgment: sampled PRs show the subscription, auto-merge set after the gate and never across an unreviewed push, at most three pushes per failing check or comment, and comments from bots checked before they were acted on. |
 | A07 | long sessions or noisy commands | Sessions compact on time; noisy steps print summaries. | ERP CLAUDE.md, run-card §4 · D260; WEB run-card §4 | judgment: sampled transcripts show logged noisy steps. |
 | A08 | a PR is open | No burst of unfinished pushes cancelled CI repeatedly. | ERP run-card §1 · D266 | judgment: sample push timelines on recent PRs. |
 | A09 | shell scripts or commands are written | Scripts avoid the listed traps. | WEB run-card §10 · W097, W139; WEB AGENTS §8 · W230 | script: lint for `grep -c` in pipelines and `) && echo OK` patterns. |
@@ -178,5 +194,5 @@
 | A20 | the project has pull requests | `harness-guard` runs gitleaks on every PR and is required; a public repository's settings file turns on secret scanning and push protection. | K030 | script: `harness-guard.yml` is installed and the default branch's ruleset requires `harness-guard`; on a public repository the settings file enables both secret protections. |
 | A21 | agents work in the project | Agent-configuration changes pass only from trusted account IDs. | K030 | script: the profile names `trusted_actors` and `harness-guard.yml` is installed. judgment: sampled PRs that changed agent configuration or `.github/workflows/` came from those accounts; no untrusted PR touching `.github/workflows/` was merged on a green guard. |
 | A22 | GitHub hosts a public repo | The limit is declared and renewed before it lapses. | K030 | script: when the live repository has an interaction limit (read through the API), the settings file declares `interaction_limits`. |
-| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and switched only by the coordinator; subagents' model and effort are named or inherited knowingly; every scheduled helper task names Haiku (K058); long threads hand over instead of compacting cold; `/usage` is read weekly. | K032, K049; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; the weekly brief carries a usage line. |
+| A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and switched only by the coordinator, its models in the state note; subagents' model and effort are named or inherited knowingly; every scheduled helper task names Haiku (K058); long threads hand over instead of compacting cold; `/usage` is read weekly. | K032, K049, K066; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; the weekly brief carries a usage line. |
 | A24 | a step on an approved card is stopped by a safety check or prompt on the owner's own machine, or a permission line would spare him a repeated manual step | The owner got one offer in the six-part shape (decision, whole edit with minutes, what the lines open, untested warning, read-back after done, result with proof) after existing routes and before any manual step; he alone edited the permission file; a refusal was never retried, reworded or routed around; no offer touched his reserved list; the lines are narrow or carry a reason and date; the project's list names each line, what it opens, its card and date. | K045 (owner, 11 Nov 2026: roadmap #101, from a runner-setup thread); C14; O17 | judgment: sampled stops on the owner's machine ended in the offer, not a workaround or a manual step; the list matches the owner's file as he reported it; no wide line covers a machine with real data. |

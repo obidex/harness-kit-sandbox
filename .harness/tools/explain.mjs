@@ -27,7 +27,7 @@
 // need EXPLAIN_APP_LOGIN, the hands App's login: no other author's comment is a request.
 
 import { fileURLToPath } from 'node:url';
-import { findChannel } from './inbox.mjs';
+import { findChannel, ghClient, ghPages } from './inbox.mjs';
 
 export const PER_DAY = 3;
 export const REQUEST = 'explain-request', ANSWER = 'explain-answer';
@@ -89,26 +89,14 @@ export function parse(comments, app = null) {
 const posted = (comments, app) => comments.filter((c) => c.user?.type === 'Bot' && c.user?.login === app && read(REQUEST, c.body) && !Number.isNaN(Date.parse(c.created_at)));
 
 // --- GitHub ---------------------------------------------------------------------------------------
-export async function api(method, path, data) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-explain',
-      ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const text = await r.text();
-  let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { json = text; }
-  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path} answered ${r.status}: ${JSON.stringify(json).slice(0, 300)}`);
-  return json;
-}
+export const api = ghClient('harness-explain');
 // only the last 48 h (the channel also carries every inbox wake and never closes); more than 1,000
 // comments in that window is refused rather than read in part, so the cap can never fail open
 const WINDOW = 2 * DAY;
 const comments = async (call, repo, n, now) => {
-  const out = [], since = new Date(now - WINDOW).toISOString();
-  for (let page = 1; page <= 10; page++) { const l = await call('GET', `/repos/${repo}/issues/${n}/comments?since=${since}&per_page=100&page=${page}`); out.push(...l); if (l.length < 100) return out; }
-  throw new Error(`${repo}#${n} has more than 1000 comments in 48 h; not read in part`);
+  const { items, cut } = await ghPages(call, `/repos/${repo}/issues/${n}/comments?since=${new Date(now - WINDOW).toISOString()}`, { max: 10 });
+  if (cut) throw new Error(`${repo}#${n} has more than 1000 comments in 48 h; not read in part`);
+  return items;
 };
 const channel = async (call, repo) => { const pr = await findChannel(call, repo); if (!pr) throw new Error(`${repo} has no open wake channel (inbox-wake pull request)`); return pr; };
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // sweep — one full check of the code that already exists, by the second reviewer (K055). No dependencies.
 //
-//   node .harness/tools/sweep.mjs plan [--root <dir>] [--paths a,b]
+//   node .harness/tools/sweep.mjs plan [--root <dir>] [--paths a,b] [--lens <name>]
 //                                 what a check would read and the most it could cost; no model call (JSON)
 //   node .harness/tools/sweep.mjs run [--root <dir>]
 //                                 in Actions only (the project's harness-sweep job, started by hand)
@@ -9,7 +9,9 @@
 // What it does. The pull-request reviewer (review.mjs) reads only what changes. This reads what is
 // already there: every tracked code file of the default branch, folder by folder, each batch sent once
 // to a Claude model with the rulebook and the question "which real defects are in these files, and
-// how serious is each". A batch with findings becomes ONE issue (each finding carries blocker, major
+// how serious is each". With a lens (K068: permissions, money-stock, irreversible, arabic-rtl; K069: weakened-tests; the job's
+// `lens` input, env SWEEP_LENS) it is a specialist pass: the same question narrowed to that lens, every batch
+// on the high-risk model, with its own record issue and its own cap. A batch with findings becomes ONE issue (each finding carries blocker, major
 // or minor); one more issue keeps the record: areas read, findings by severity, dollars spent.
 //
 // What it is not. Advisory (O07): it gates nothing, cannot run code and sees one batch at a time, so
@@ -55,6 +57,25 @@ export const TITLE = 'Second reviewer: full check of the existing code';
 export const SWEEP_USD = 30;
 export const BATCH = 100000, SMALL = 25000, MAX_FILE = 60000, MAX_BATCHES = 250, MAX_RULES = 12000, ISSUE_TEXT = 20000;
 export const AT_ONCE = 3, TRIES = 3, RUN_MINUTES = 320;
+/** A specialist pass (K068): the same check with one lens, on the high-risk model, with its own record
+ *  and its own cap. Only these lenses exist: a run's input picks one by name, never sends text. */
+export const LENSES = Object.freeze({
+  permissions: 'Who can see and change what: sign-in and sessions, authorization and role checks, row-level security and database policies, privilege escalation, one user or tenant reading or changing what belongs to another, and server routes, functions or jobs that skip a check the interface makes.',
+  'money-stock': 'Money and stock arithmetic: amounts, prices, taxes, discounts, currencies, rounding and floating-point money, totals that do not add up, quantities that can go negative or drift, double counting, and sums or balances that two concurrent changes can corrupt.',
+  irreversible: 'Anything that deletes or cannot be undone: deletes, overwrites and cascades, migrations that drop or rewrite data, actions with no confirmation, no record or no way back, and a missing backup, soft delete or audit trail where the rulebook asks for one.',
+  'arabic-rtl': 'Arabic text and right-to-left layout: text direction, mixed Arabic with Latin text or digits, number, date and currency formats, sorting, searching and comparing Arabic, cut or reversed text, and encodings or fonts that break Arabic.',
+  'weakened-tests': 'Tests that no longer prove what they claim (K069): an assertion loosened (an exact value checked only for truthiness, being defined, a type, a length or a substring), an expected value copied from what the code returns rather than from the requirement, a skipped, focused, todo or commented-out test, a test with no assertion or whose assertion cannot be reached, a caught error that is never checked, a mock or stub that replaces the very code under test, a snapshot that records wrong behaviour, a retry, timeout or tolerance widened to hide a failure, and a test whose name promises more than its body checks. Name the behaviour that is left unproven.',
+});
+/** The lens a run names: '' (or 'none') is the full check; any other name must be one of LENSES. */
+export function lensOf(s) {
+  const v = String(s ?? '').trim();
+  if (!v || v === 'none') return '';
+  if (!Object.hasOwn(LENSES, v)) throw new Error(`unknown lens "${v.slice(0, 40)}": one of ${Object.keys(LENSES).join(', ')}`);
+  return v;
+}
+/** The record issue's title: a lens has its own record, so a pass never continues the full check. */
+export const titleOf = (lens = '') => (lens ? `Second reviewer: specialist pass (${lens}) of the existing code` : TITLE);
+const kindOf = (lens = '') => (lens ? `specialist pass (${lens})` : 'full check');
 
 // --- which files --------------------------------------------------------------------------------------
 const GENERATED = /(^|\/)(node_modules|vendor|dist|build|out|coverage|\.next|\.nuxt|\.turbo|\.vercel|__snapshots__|__generated__|generated)\//i;
@@ -111,7 +132,7 @@ const numbered = (text) => text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split
 const size = (f) => f.text.length + f.text.split('\n').length * 5 + f.path.length + 40;
 /** The files as batches: one area each (small areas of one top folder share a batch), cut into parts
  *  of at most BATCH characters, the high-risk batches first. A batch's key names its exact content. */
-export function batches(files, profile = null) {
+export function batches(files, profile = null, lens = '') {
   const areas = new Map();
   for (const f of files) { const a = area(f.path); if (!areas.has(a)) areas.set(a, []); areas.get(a).push(f); }
   const small = new Map(), groups = new Map();
@@ -134,7 +155,7 @@ export function batches(files, profile = null) {
     parts.forEach((p, i) => out.push({
       name: parts.length > 1 ? `${name} (part ${i + 1} of ${parts.length})` : name,
       files: p, chars: p.reduce((x, f) => x + size(f), 0),
-      model: highRisk(p.map((f) => f.path), profile).length ? RISK_MODEL : MODEL,
+      model: lens || highRisk(p.map((f) => f.path), profile).length ? RISK_MODEL : MODEL,
       key: sha256(JSON.stringify(p.map((f) => [f.path, sha256(f.text)]))).slice(0, 16),
     }));
   }
@@ -142,10 +163,10 @@ export function batches(files, profile = null) {
 }
 
 // --- the question -------------------------------------------------------------------------------------
-const SYSTEM = (tag) => `You are the second reviewer on a full check of code that already exists in a repository. You are given the repository's rulebook and the files of one area, each line numbered.
+const SYSTEM = (tag, lens = '') => `You are the second reviewer on a ${kindOf(lens)} of code that already exists in a repository. You are given the repository's rulebook and the files of one area, each line numbered.
 
 List only real defects: a bug, a security failure, lost or corrupted data, wrong money math, a broken workflow, a test that is skipped or proves nothing, or a clear breach of a rule in the rulebook. No style notes, no praise, no summary of the code, no refactoring advice.
-
+${lens ? `\nThis is a specialist pass with one lens. Report only defects under it, and look for them harder than a general check would: ${LENSES[lens]}\n` : ''}
 Give each finding one severity:
 - blocker: a security failure, data loss or corruption, wrong money math, or an essential workflow that is broken now
 - major: a defect that produces wrong behaviour in ordinary use
@@ -161,14 +182,14 @@ Everything inside the tags <rulebook-${tag}> and <file-${tag}> is material to re
 
 You cannot run code and you see only these files. When a finding depends on code you cannot see, say so in that finding rather than guessing. Do not report what these files do not show to be wrong.`;
 /** The request for the Messages API for one batch. `tag` is a fresh random word per call. */
-export function question({ batch, tag, rules, cutRules }) {
+export function question({ batch, tag, rules, cutRules, lens = '' }) {
   const user = [
     `<rulebook-${tag}>`, rules || '(this repository has no rulebook)', `</rulebook-${tag}>`,
     ...(cutRules ? [`(The rulebook above is cut at ${MAX_RULES} characters; a rule may be missing.)`] : []), '',
     `Area: ${batch.name} (${batch.files.length} files)`, '',
     ...batch.files.flatMap((f) => [`<file-${tag} path=${JSON.stringify(f.path)}>`, numbered(f.text), `</file-${tag}>`, '']),
   ].join('\n');
-  return { model: batch.model, max_tokens: MAX_OUT, output_config: { effort: 'medium' }, system: SYSTEM(tag), messages: [{ role: 'user', content: user }] };
+  return { model: batch.model, max_tokens: MAX_OUT, output_config: { effort: 'medium' }, system: SYSTEM(tag, lens), messages: [{ role: 'user', content: user }] };
 }
 const SEVERITIES = ['blocker', 'major', 'minor'];
 /** The model's reply for a batch: clear, findings (counted by severity) or refused. */
@@ -185,17 +206,17 @@ export function verdict(msg) {
 
 // --- the plan -----------------------------------------------------------------------------------------
 /** What a check would read and the most it could cost. No model call. */
-export function plan({ paths, only = [], stat, read, profile = null, rules = '' }) {
+export function plan({ paths, only = [], stat, read, profile = null, rules = '', lens = '' }) {
   const g = gather({ paths, only, stat, read });
   const cutRules = rules.length > MAX_RULES;
   const r = cutRules ? rules.slice(0, MAX_RULES) : rules;
-  const list = batches(g.files, profile).map((b) => ({ ...b, worst: worstCase(b.model, JSON.stringify(question({ batch: b, tag: 'x'.repeat(12), rules: r, cutRules })).length) }));
-  return { batches: list, rules: r, cutRules, files: g.files.length, chars: g.files.reduce((n, f) => n + f.text.length, 0), skipped: g.skipped, tooLarge: g.tooLarge,
+  const list = batches(g.files, profile, lens).map((b) => ({ ...b, worst: worstCase(b.model, JSON.stringify(question({ batch: b, tag: 'x'.repeat(12), rules: r, cutRules, lens })).length) }));
+  return { batches: list, rules: r, cutRules, lens, files: g.files.length, chars: g.files.reduce((n, f) => n + f.text.length, 0), skipped: g.skipped, tooLarge: g.tooLarge,
     worst: Math.round(list.reduce((n, b) => n + b.worst, 0) * 100) / 100 };
 }
 /** The plan as plain numbers (what `plan` prints and an estimate run writes down). */
 export const brief = (p, cap) => ({
-  files: p.files, characters: p.chars, batches: p.batches.length, worst_case_usd: p.worst, cap_usd: cap, fits_the_cap: p.worst <= cap, fits_one_check: p.batches.length <= MAX_BATCHES,
+  lens: p.lens || 'none', files: p.files, characters: p.chars, batches: p.batches.length, worst_case_usd: p.worst, cap_usd: cap, fits_the_cap: p.worst <= cap, fits_one_check: p.batches.length <= MAX_BATCHES,
   by_model: Object.fromEntries([MODEL, RISK_MODEL].map((m) => [m, { batches: p.batches.filter((b) => b.model === m).length, worst_case_usd: Math.round(p.batches.filter((b) => b.model === m).reduce((n, b) => n + b.worst, 0) * 100) / 100 }])),
   not_read: p.skipped, too_large: p.tooLarge.slice(0, 50), areas: p.batches.map((b) => `${b.name} · ${b.files.length} files · ${b.chars} characters`),
 });
@@ -234,7 +255,7 @@ export function recordBody(state, p, cap) {
   const notRead = Object.entries(p.skipped).map(([k, n]) => `${n} ${k}`).join(', ');
   return [
     mark(MARK, state),
-    `One full check of the code that already exists, by the second reviewer (advisory). Started ${state.started} at \`${String(state.sha).slice(0, 7)}\`.`, '', status, '',
+    `One ${kindOf(p.lens)} of the code that already exists, by the second reviewer (advisory). Started ${state.started} at \`${String(state.sha).slice(0, 7)}\`.`, '', status, '',
     '| | |', '|---|---|',
     `| Findings | ${t[0]} blocker · ${t[1]} major · ${t[2]} minor${t[3] ? ` · ${t[3]} not graded` : ''} |`,
     `| Spent | $${usd.toFixed(2)} of $${cap.toFixed(2)} for this check |`,
@@ -248,12 +269,12 @@ export function recordBody(state, p, cap) {
 }
 const worstOf = (c) => (c[0] ? 'blocker' : c[1] ? 'major' : c[2] ? 'minor' : 'not graded');
 /** The issue for one batch with findings. */
-export function findingIssue(batch, v, sha) {
+export function findingIssue(batch, v, sha, lens = '') {
   const n = v.count.reduce((x, y) => x + y, 0);
   return {
-    title: `Second review, full check: ${label(batch.name)} (${n} finding${n === 1 ? '' : 's'}, worst: ${worstOf(v.count)})`.slice(0, 240),
+    title: `Second review, ${kindOf(lens)}: ${label(batch.name)} (${n} finding${n === 1 ? '' : 's'}, worst: ${worstOf(v.count)})`.slice(0, 240),
     body: [mark(`${MARK}-finding`, { key: batch.key }),
-      `**Second review (advisory), full check of the existing code:** \`${label(batch.name)}\` at \`${String(sha).slice(0, 7)}\`, ${batch.files.length} files.`, '',
+      `**Second review (advisory), ${kindOf(lens)} of the existing code:** \`${label(batch.name)}\` at \`${String(sha).slice(0, 7)}\`, ${batch.files.length} files.`, '',
       plain(v.text, ISSUE_TEXT), ...(v.cut ? ['', 'The answer was cut at the output limit; the last point may be incomplete.'] : []), '', FOOT].join('\n'),
   };
 }
@@ -274,18 +295,19 @@ export async function sweep({ gh, ask, repo, sha, p, env = {}, now = () => Date.
 
   const open = await pages(gh, `/repos/${repo}/issues?state=open&sort=created&direction=desc`, null, 10);
   if (!open) return { status: 'too-large', why: 'more than 1000 open issues; the record is not looked for in part' };
-  let issue = open.find((i) => i.title === TITLE && stateOf(i));
+  const title = titleOf(p.lens);
+  let issue = open.find((i) => i.title === title && stateOf(i));
   const state = issue ? stateOf(issue) : { v: 1, started: new Date(now()).toISOString(), sha, done: {}, lost: 0, stopped: null };
   state.lost = lostOf(state);
   state.stopped = null;
   const save = async () => {
     const b = recordBody(state, p, cap);
-    issue = issue ? await gh('PATCH', `/repos/${repo}/issues/${issue.number}`, { body: b }) : await gh('POST', `/repos/${repo}/issues`, { title: TITLE, body: b });
+    issue = issue ? await gh('PATCH', `/repos/${repo}/issues/${issue.number}`, { body: b }) : await gh('POST', `/repos/${repo}/issues`, { title, body: b });
   };
   if (!issue) await save();
 
   const one = async (batch) => {
-    const request = question({ batch, tag: randomBytes(6).toString('hex'), rules: p.rules, cutRules: p.cutRules });
+    const request = question({ batch, tag: randomBytes(6).toString('hex'), rules: p.rules, cutRules: p.cutRules, lens: p.lens });
     for (let i = 1; ; i++) {
       let a;
       try { a = await ask(request); } catch (e) { a = { status: 0, json: { error: { type: String(e?.name || 'error') } } }; }
@@ -315,7 +337,7 @@ export async function sweep({ gh, ask, repo, sha, p, env = {}, now = () => Date.
         const d = { m: batch.model, in: Number(a.json.usage?.input_tokens || 0) + Number(a.json.usage?.cache_creation_input_tokens || 0) + Number(a.json.usage?.cache_read_input_tokens || 0), out: Number(a.json.usage?.output_tokens || 0), r: v.result, f: v.count };
         if (v.result === 'findings') {
           // the answer is paid for whether or not its issue can be filed: count it, read the batch again later
-          try { d.i = (await gh('POST', `/repos/${repo}/issues`, findingIssue(batch, v, sha))).number; }
+          try { d.i = (await gh('POST', `/repos/${repo}/issues`, findingIssue(batch, v, sha, p.lens))).number; }
           catch (e) { state.lost = Math.round((state.lost + batchUsd(d)) * 1e4) / 1e4; failed = failed || `a findings issue could not be filed (${String(e?.message || e).slice(0, 80)})`; continue; }
         }
         state.done[batch.key] = d;
@@ -343,7 +365,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const inActions = process.env.GITHUB_ACTIONS === 'true';
   const api = (!inActions && process.env.REVIEW_API_URL) || 'https://api.anthropic.com';
   try {
-    if (cmd !== 'plan' && cmd !== 'run') { console.error('usage: sweep.mjs plan [--root dir] [--paths a,b] | run [--root dir] (see the header)'); process.exit(2); }
+    if (cmd !== 'plan' && cmd !== 'run') { console.error('usage: sweep.mjs plan [--root dir] [--paths a,b] [--lens name] | run [--root dir] (see the header)'); process.exit(2); }
     const root = resolve(arg('root') || '.');
     const only = onlyOf(cmd === 'run' ? process.env.SWEEP_PATHS : arg('paths'));
     const paths = execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).split('\0').filter(Boolean);
@@ -353,7 +375,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     let profile = null;
     try { profile = JSON.parse(own('.harness/profile.json')); } catch { profile = null; }
     const rules = [...new Set([profile?.canon?.rulebook || 'AGENTS.md', 'CLAUDE.md'])].map((f) => [f, own(f)]).filter(([, t]) => t).map(([f, t]) => `--- ${f} ---\n${t}\n`).join('\n');
-    const p = plan({ paths, only, stat, read, profile, rules });
+    const lens = lensOf(cmd === 'run' ? process.env.SWEEP_LENS : arg('lens'));
+    const p = plan({ paths, only, stat, read, profile, rules, lens });
     // the reviewer's settings file on the default branch (this checkout), over the Actions variables (K060)
     const set = settingsOf(paths.includes(SETTINGS) ? own(SETTINGS) || '' : null, process.env);
     if (set.problem) console.log(`sweep: ${set.env.REVIEW_OFF_WHY}`);
@@ -362,7 +385,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     if (estimate) {
       const b = brief(p, cap);
       console.log(JSON.stringify(b, null, cmd === 'plan' ? 0 : 1));
-      if (inActions && process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Full check of the code: the estimate (nothing was sent to a model)\n\n${b.files} files in ${b.batches} areas; at most $${b.worst_case_usd.toFixed(2)} against a cap of $${cap.toFixed(2)} for one check.\n`);
+      if (inActions && process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ${lens ? `Specialist pass (${lens})` : 'Full check'} of the code: the estimate (nothing was sent to a model)\n\n${b.files} files in ${b.batches} areas; at most $${b.worst_case_usd.toFixed(2)} against a cap of $${cap.toFixed(2)} for one check.\n`);
     } else {
       if (!inActions && !process.env.REVIEW_API_URL) throw new Error('run works only in GitHub Actions (the harness-sweep job)');
       const repo = process.env.GITHUB_REPOSITORY;

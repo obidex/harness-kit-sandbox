@@ -31,7 +31,7 @@
 // ASK_APP_LOGIN, the hands App's login: no other author's comment is ever an answer.
 
 import { fileURLToPath } from 'node:url';
-import { findChannel } from './inbox.mjs';
+import { findChannel, ghClient, ghPages } from './inbox.mjs';
 
 export const LABEL = 'needs-owner';
 export const ASK = 'panel-ask', ANSWER = 'panel-answer', WITHDRAW = 'panel-withdraw';
@@ -85,24 +85,8 @@ export function parse(comments, app = null) {
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
-export async function api(method, path, data) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-ask',
-      ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const text = await r.text();
-  let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { json = text; }
-  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path} answered ${r.status}: ${JSON.stringify(json).slice(0, 300)}`);
-  return json;
-}
-const comments = async (call, repo, n) => {
-  const out = [];
-  for (let page = 1; page <= 10; page++) { const l = await call('GET', `/repos/${repo}/issues/${n}/comments?per_page=100&page=${page}`); out.push(...l); if (l.length < 100) break; }
-  return out;
-};
+export const api = ghClient('harness-ask');
+const comments = async (call, repo, n) => (await ghPages(call, `/repos/${repo}/issues/${n}/comments`, { max: 10 })).items;
 
 /** Put a question on a card. The same id twice on one card is never a second question. */
 export async function ask(call, { repo, issue, app = null, ...q }) {

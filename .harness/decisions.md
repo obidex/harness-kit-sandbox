@@ -41,4 +41,5 @@ decision file changed after it was written; the kit runs it on itself in `check-
 Nothing to migrate. From the kit release a project installs with this file, its next decision is
 written as a file; its rulebook's pointer to the register names the folder too. A thread that
 started on the older kit and appended to the log is caught by the check and moves its entry into a
-file.
+file. That move removes lines from the closed log, which the audit's C17 reports; the project lists the
+move's commit for C17 in its audit baseline (`commits`, with `why`), and C17 skips that commit only (K067).

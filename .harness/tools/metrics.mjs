@@ -18,6 +18,9 @@
 //                        "changes requested" reviews instead
 //   false DONEs          work reported done that was not: an agent PR whose merge commit's push run on
 //                        the default branch failed, a merged revert, an issue or PR reopened
+//   sat green            of those, how long each sat with every check on its merged head green before
+//                        it merged (K069): the median in minutes and how many sat over WAIT_MINUTES, a
+//                        thread that was not there when its checks went green
 //   stalls               open now and idle over 24 hours: non-draft PRs, and issues labelled card,
 //                        risk:* or inbox
 //   owner touches        (needs --owner) writes from the owner's own account that no agent app made and that carry no
@@ -34,6 +37,7 @@ export const FAILED_RUN = new Set(['failure', 'timed_out', 'startup_failure', 'a
 export const MAX_PRS = 40;          // merged agent PRs read in detail per repository
 export const MAX_PAGES = 10;        // pages of 100 for any one listing
 export const STALL_HOURS = 24;
+export const WAIT_MINUTES = 30;     // a PR that sat green longer than this waited on its thread (K069)
 const HOUR = 3600000, DAY = 24 * HOUR;
 const ATTRIBUTION = /claude-projects-attribution/;
 
@@ -87,6 +91,32 @@ export async function firstPass(repo, shas) {
   return null;
 }
 
+/** Minutes a PR sat green before it merged, from the check runs on its merged head: the newest run of
+ *  each check name that started before the merge counts (an older run it replaced, often cancelled, does
+ *  not); null when one of those had not finished green by the merge, or there was none. A run that
+ *  started after the merge (a re-run, a reviewer on the merged head) is left out. */
+export function satGreen(checkRuns, mergedAt) {
+  const merged = Date.parse(mergedAt);
+  if (!Number.isFinite(merged)) return null;
+  const newest = new Map();
+  checkRuns.forEach((r, i) => {
+    const start = r.started_at ? Date.parse(r.started_at) : -Infinity;
+    if (start > merged) return;
+    const key = r.name ?? `#${i}`;
+    if (!newest.has(key) || start >= newest.get(key).start) newest.set(key, { r, start });
+  });
+  const before = [...newest.values()].map((x) => x.r);
+  if (!before.length) return null;
+  let green = 0;
+  for (const r of before) {
+    const done = r.status === 'completed' && r.completed_at ? Date.parse(r.completed_at) : NaN;
+    if (!(done <= merged) || !OK_CONCLUSIONS.has(r.conclusion)) return null;
+    green = Math.max(green, done);
+  }
+  return Math.round((merged - green) / 6000) / 10;
+}
+const median = (xs) => { const s = [...xs].sort((a, b) => a - b); const k = s.length >> 1; return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2; };
+
 async function section(errors, name, fn) {
   try { return await fn(); } catch (e) { errors.push(`${name}: ${e.message}`); return null; }
 }
@@ -118,6 +148,7 @@ export async function measure(repo, { now = Date.now(), days = 7, owner = null, 
       const reviews = (await pages(`/repos/${repo}/pulls/${i.number}/reviews`, { max: 3 })).items;
       const rounds = reviewRounds([pr.body, ...comments.map((c) => c.body), ...reviews.map((r) => r.body)]);
       const changes = reviews.filter((r) => r.state === 'CHANGES_REQUESTED').length;
+      const head = pr.head?.sha ? (await pages(`/repos/${repo}/commits/${pr.head.sha}/check-runs?filter=latest`, { key: 'check_runs', max: 2 })).items : [];
       const runs = pr.merge_commit_sha ? (await get(`/repos/${repo}/actions/runs?head_sha=${pr.merge_commit_sha}&event=push&per_page=50`)).workflow_runs || [] : [];
       rows.push({
         number: i.number,
@@ -125,6 +156,7 @@ export async function measure(repo, { now = Date.now(), days = 7, owner = null, 
         reviewed: rounds.size > 0 || changes > 0,
         // a PR that records rounds counts them; "changes requested" counts only where it records none
         blocks: rounds.size ? [...rounds.values()].reduce((s, k) => s + k, 0) : changes,
+        satGreen: satGreen(head, i.pull_request.merged_at),
         mainRed: runs.some((r) => r.status === 'completed' && FAILED_RUN.has(r.conclusion)),
       });
     }
@@ -138,7 +170,9 @@ export async function measure(repo, { now = Date.now(), days = 7, owner = null, 
     const reviewed = detail.filter((d) => d.reviewed);
     const blocks = reviewed.reduce((s, d) => s + d.blocks, 0);
     out.reviewBlocks = { blocks, reviewedPrs: reviewed.length, perReviewedPr: reviewed.length ? blocks / reviewed.length : null };
-  } else { out.firstPass = null; out.reviewBlocks = null; }
+    const sat = detail.filter((d) => d.satGreen !== null).map((d) => d.satGreen);
+    out.satGreen = { measured: sat.length, medianMinutes: sat.length ? median(sat) : null, maxMinutes: sat.length ? Math.max(...sat) : null, over: sat.filter((x) => x > WAIT_MINUTES).length, overPrs: detail.filter((d) => d.satGreen > WAIT_MINUTES).map((d) => d.number) };
+  } else { out.firstPass = null; out.reviewBlocks = null; out.satGreen = null; }
 
   // false DONEs
   const reopened = await section(errors, 'issue events', async () => {
@@ -185,13 +219,14 @@ export function render(results, { days = 7 } = {}) {
     num(m.agentPrsMerged),
     m.firstPass ? `${pct(m.firstPass.rate)} (${m.firstPass.green}/${m.firstPass.measured})` : '?',
     m.reviewBlocks ? `${num(m.reviewBlocks.perReviewedPr)} (${m.reviewBlocks.blocks} in ${m.reviewBlocks.reviewedPrs})` : '?',
+    m.satGreen ? `${m.satGreen.measured ? `${num(m.satGreen.medianMinutes)} min` : '-'}, ${m.satGreen.over} of ${m.satGreen.measured} over ${WAIT_MINUTES}` : '?',
     m.falseDone ? num(m.falseDone.total) : '?',
     m.stalls ? num(m.stalls.count) : '?',
     m.ownerTouches ? num(m.ownerTouches.perWeek) : '?',
   ]);
   const lines = [
-    `| Repository | Agent PRs merged | First-pass CI green | Review BLOCKs per reviewed PR | False DONEs | Stalls now (idle > 24 h) | Owner touches a week (at most) |`,
-    '|---|---|---|---|---|---|---|',
+    `| Repository | Agent PRs merged | First-pass CI green | Review BLOCKs per reviewed PR | Sat green before merge (median; over ${WAIT_MINUTES} min) | False DONEs | Stalls now (idle > 24 h) | Owner touches a week (at most) |`,
+    '|---|---|---|---|---|---|---|---|',
     ...rows.map((r) => `| ${r.join(' | ')} |`),
     '',
     `Last ${days} days. Definitions: the kit's \`.harness/metrics.md\`. "?" means GitHub could not be read for it, never zero.`,

@@ -84,19 +84,53 @@ export function setField(text, field, value) {
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
-async function api(method, path, data) {
+// A host fetches this file, ask.mjs and explain.mjs alone (by pin), without lib.mjs: these three are an
+// exact copy of lib.mjs's GitHub client (test-inbox checks it), for this file and the two that import it.
+
+/** One call. Never throws on an HTTP answer: `{ status, data, text }`, data the parsed JSON (null when
+ *  the answer is empty, the text when it is not JSON, always the text with `raw`). No token, no header. */
+export async function ghCall(method, path, data, { agent = 'harness-kit', token, accept = 'application/vnd.github+json', raw = false } = {}) {
   const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
     method,
-    headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-inbox',
-      ...(process.env.GH_TOKEN ? { authorization: `Bearer ${process.env.GH_TOKEN}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
+    headers: { accept, 'x-github-api-version': '2022-11-28', 'user-agent': agent,
+      ...(token ? { authorization: `Bearer ${token}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
     body: data ? JSON.stringify(data) : undefined,
   });
   const text = await r.text();
-  let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { json = text; }
-  if (r.status < 200 || r.status > 299) throw new Error(`${method} ${path} answered ${r.status}: ${JSON.stringify(json).slice(0, 300)}${r.status === 401 || r.status === 403 ? accessHint(path) : ''}`);
-  return json;
+  let json = text;
+  if (!raw) { try { json = text ? JSON.parse(text) : null; } catch { /* not JSON: the text */ } }
+  return { status: r.status, data: json, text };
 }
+
+/** A tool's client, `(method, path, data, { accept, raw })`: the data of a 2xx answer. Any other answer
+ *  throws an Error with `status` that names the method, the path without its query and the status, with
+ *  the answer's first 300 characters and the tool's `hint(status, path)`. The token is read at each call. */
+export const ghClient = (agent, { token = () => process.env.GH_TOKEN, hint = () => '' } = {}) => async (method, path, data, opts = {}) => {
+  const r = await ghCall(method, path, data, { ...opts, agent, token: token() });
+  if (r.status < 200 || r.status > 299) {
+    const e = new Error(`${method} ${path.split('?')[0]} answered ${r.status}: ${r.text.slice(0, 300)}${hint(r.status, path)}`);
+    e.status = r.status;
+    throw e;
+  }
+  return r.data;
+};
+
+/** Every item of a listing, 100 a page, at most `max` pages: `{ items, cut }`, cut when the last page read
+ *  was full (there may be more). `key` names the list inside an object answer. An answer that is not a
+ *  list throws: a check never passes on a page it could not read. */
+export async function ghPages(call, path, { max = 10, key } = {}) {
+  const items = [];
+  for (let page = 1; page <= max; page++) {
+    const got = await call('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
+    const l = key ? got?.[key] : got;
+    if (!Array.isArray(l)) throw new Error(`GET ${path.split('?')[0]} answered no list${key ? ` in "${key}"` : ''}`);
+    items.push(...l);
+    if (l.length < 100) return { items, cut: false };
+  }
+  return { items, cut: true };
+}
+
+const api = ghClient('harness-inbox', { hint: (status, path) => (status === 401 || status === 403 ? accessHint(path) : '') });
 
 /** What to do when GitHub refuses the token: in a cloud session the proxy lends credentials only for
  *  repositories attached to the session, and GH_TOKEN there is not a working token. */
@@ -112,13 +146,8 @@ export const trusted = (i) => TRUSTED.includes(i?.author_association) || i?.user
 
 /** Every inbox issue of the repository, open and closed, filed by a trusted author, as { number, state, url, fields }. */
 export async function requests(repo) {
-  const out = [];
-  for (let page = 1; page < 50; page++) {
-    const l = await api('GET', `/repos/${repo}/issues?labels=${LABEL}&state=all&per_page=100&page=${page}`);
-    for (const i of l) { const fields = parse(i.body); if (fields && !i.pull_request && trusted(i)) out.push({ number: i.number, state: i.state, url: i.html_url, fields }); }
-    if (l.length < 100) break;
-  }
-  return out;
+  const { items } = await ghPages(api, `/repos/${repo}/issues?labels=${LABEL}&state=all`, { max: 50 });
+  return items.flatMap((i) => { const fields = !i.pull_request && trusted(i) && parse(i.body); return fields ? [{ number: i.number, state: i.state, url: i.html_url, fields }] : []; });
 }
 
 /** The first issue filed for each ID; later ones for the same ID are duplicates and never count. */
@@ -156,13 +185,7 @@ export function wakeState(notes) {
 }
 
 async function comments(call, repo, n) {
-  const notes = [];
-  for (let page = 1; page < 50; page++) {
-    const cs = await call('GET', `/repos/${repo}/issues/${n}/comments?per_page=100&page=${page}`);
-    notes.push(...cs.map((c) => String(c.body)));
-    if (cs.length < 100) break;
-  }
-  return notes;
+  return (await ghPages(call, `/repos/${repo}/issues/${n}/comments`, { max: 50 })).items.map((c) => String(c.body));
 }
 
 /** Wake the receiving coordinator for one queued request, through the wake-channel pull request.

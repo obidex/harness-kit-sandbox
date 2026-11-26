@@ -37,6 +37,11 @@ on:
         description: "Only these folders or files, comma separated (empty = everything)"
         type: string
         default: ""
+      lens:
+        description: "none = the full check; a name = one specialist pass on that lens, its own record and cap (K068)"
+        type: choice
+        options: [none, permissions, money-stock, irreversible, arabic-rtl, weakened-tests]
+        default: none
 
 permissions:
   contents: read
@@ -69,6 +74,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SWEEP_MODE: ${{ inputs.mode }}
           SWEEP_PATHS: ${{ inputs.paths }}
+          SWEEP_LENS: ${{ inputs.lens }}
           REVIEW_UNTIL: ${{ vars.REVIEW_UNTIL }}
           REVIEW_SWEEP_RULE: ${{ vars.REVIEW_SWEEP_RULE }}
           REVIEW_ORGANIZATION: ${{ vars.REVIEW_ORGANIZATION }}

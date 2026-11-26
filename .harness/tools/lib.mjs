@@ -164,17 +164,61 @@ export function triggers(wf) {
   return on ? Object.keys(on) : [];
 }
 
-/** Read JSON from GitHub's REST API. Returns { status, data }. Never throws on HTTP errors. */
+// --- GitHub's REST API ------------------------------------------------------------------------------
+// The one client of the tools a project installs as the whole folder. Hosts that fetch single files by
+// pin get no lib.mjs, so those files keep their own: inbox.mjs holds an exact copy of ghCall, ghClient
+// and ghPages for itself, ask.mjs and explain.mjs (test-inbox checks the copy and each set's imports),
+// and metrics.mjs and notify.mjs, each fetched alone, keep theirs.
+
+/** One call. Never throws on an HTTP answer: `{ status, data, text }`, data the parsed JSON (null when
+ *  the answer is empty, the text when it is not JSON, always the text with `raw`). No token, no header. */
+export async function ghCall(method, path, data, { agent = 'harness-kit', token, accept = 'application/vnd.github+json', raw = false } = {}) {
+  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
+    method,
+    headers: { accept, 'x-github-api-version': '2022-11-28', 'user-agent': agent,
+      ...(token ? { authorization: `Bearer ${token}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
+    body: data ? JSON.stringify(data) : undefined,
+  });
+  const text = await r.text();
+  let json = text;
+  if (!raw) { try { json = text ? JSON.parse(text) : null; } catch { /* not JSON: the text */ } }
+  return { status: r.status, data: json, text };
+}
+
+/** A tool's client, `(method, path, data, { accept, raw })`: the data of a 2xx answer. Any other answer
+ *  throws an Error with `status` that names the method, the path without its query and the status, with
+ *  the answer's first 300 characters and the tool's `hint(status, path)`. The token is read at each call. */
+export const ghClient = (agent, { token = () => process.env.GH_TOKEN, hint = () => '' } = {}) => async (method, path, data, opts = {}) => {
+  const r = await ghCall(method, path, data, { ...opts, agent, token: token() });
+  if (r.status < 200 || r.status > 299) {
+    const e = new Error(`${method} ${path.split('?')[0]} answered ${r.status}: ${r.text.slice(0, 300)}${hint(r.status, path)}`);
+    e.status = r.status;
+    throw e;
+  }
+  return r.data;
+};
+
+/** Every item of a listing, 100 a page, at most `max` pages: `{ items, cut }`, cut when the last page read
+ *  was full (there may be more). `key` names the list inside an object answer. An answer that is not a
+ *  list throws: a check never passes on a page it could not read. */
+export async function ghPages(call, path, { max = 10, key } = {}) {
+  const items = [];
+  for (let page = 1; page <= max; page++) {
+    const got = await call('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
+    const l = key ? got?.[key] : got;
+    if (!Array.isArray(l)) throw new Error(`GET ${path.split('?')[0]} answered no list${key ? ` in "${key}"` : ''}`);
+    items.push(...l);
+    if (l.length < 100) return { items, cut: false };
+  }
+  return { items, cut: true };
+}
+
+/** Read JSON from GitHub with GITHUB_TOKEN (else GH_TOKEN): `{ status, data }`. Never throws, also not
+ *  when GitHub cannot be reached (status 0). */
 export async function gh(path) {
-  const headers = { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'harness-kit' };
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (token) headers.authorization = `Bearer ${token}`;
   try {
-    const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, { headers });
-    const text = await r.text();
-    let data = null;
-    try { data = JSON.parse(text); } catch { data = text; }
-    return { status: r.status, data };
+    const { status, data } = await ghCall('GET', path, null, { token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN });
+    return { status, data };
   } catch (e) {
     return { status: 0, data: String(e) };
   }

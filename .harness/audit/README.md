@@ -22,13 +22,15 @@ with "judgment review" as evidence.
   judgment review as PASS with that citation, or as a conflict (below).
 - **The baseline.** `.harness/audit-baseline.json` (project-owned) lists accepted results, each with
   `why`. An entry with `result: FAIL` accepts that rule's FAIL in `--strict`. An entry with `commits`
-  (SHAs, 7+ characters) is a known exception instead: A10 and O09 skip exactly those commits (history
-  is never rewritten) and still FAIL on any other, so the exception never hides a recurrence.
+  (SHAs, 7+ characters) is a known exception instead: A10, O09 and C17's lost-lines test skip exactly
+  those commits (history is never rewritten) and still FAIL on any other, so the exception never hides
+  a recurrence. C17's is for the closed decisions log's entry moved word for word into its own file
+  (`decisions.md`, K067); its caps, budget and decisions checks are never skipped.
 
 ## 2. Judgment review (sampled, by a fresh-context reviewer)
 
-Run by an Opus reviewer with read-only access, never by the thread that did the work (O07). Input: the
-structural JSON (`--json`), the profile, read access to the repository and its issues and PRs.
+Run by a Fable reviewer with read-only access, never by the thread that did the work (O06, O07). Input:
+the structural JSON (`--json`), the profile, read access to the repository and its issues and PRs.
 
 1. **Sample recent active work.** The last 8 closed cards (find them by the card template's
    headings, not only by label: labels drift), the last 10
