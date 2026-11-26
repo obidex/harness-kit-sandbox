@@ -35,6 +35,9 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Installer and updater | `tools/harness.mjs`, workflows from `templates/workflows/` (each on the project's `RUNNER` lane, `hands.md`; the profile's chore lane written in, K063) | Run, never loaded |
 | CI speed (K059, K063): a chore lane (the profile's `chore_runner`, the variable `CHORE_RUNNER` overriding it) for the kit's short jobs, one scrub run per burst, a project's own checks scaled to the change with a nightly full run, the long test job split | `ci.md`, `tools/scope.mjs` | Lookup; tool run, never loaded |
 | Kit skills: `correct` (C19 prevention ladder), `inbox` (O14 requests) | `templates/skills/<name>/`, installed as `.claude/skills/<name>/` | Loaded when named |
+| Papercuts (C28, K070): an agent files one short report on its project's private papercut issue when a tool, skill or rule fights it, and carries on; the coordinator's run posts a weekly digest across projects and files cards for the top three; the issue's count line feeds a status page | `papercuts.md`, `tools/papercut.mjs` | Lookup; tool run, never loaded |
+| Read-only lookups (K070): the state note and a failed log read by a Haiku worker that returns a short summary, the queue and the papercut table by script | `lookups.md` | Lookup |
+| Runbook and skill linter (K070): numbered steps, a command and a check per step, a failure table, for every `SKILL.md` and every file marked `<!-- runbook -->` | `tools/steps.mjs` | Run, never loaded |
 
 `VERSION` is the kit version a project pins (imported by `CLAUDE.md`); cards record it. In a project,
 `kit.lock.json` lists every kit-managed file with its hash; `profile.json` is the project's own.

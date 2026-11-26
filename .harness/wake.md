@@ -163,8 +163,12 @@ The scheduled task's saved prompt says this. Each run:
    `WAKE-START:`. On `REFUSED` it writes nothing and ends: the job did not signal this start, or
    another run already took it. `OK` is given once per start: the command itself writes the run's
    first comment on the STATE issue ("Run started"), which spends the start and is the only proof
-   that it arrived.
-2. Works the queue under the project's rules (`core.md`, the rulebook). It removes `wake` from each
+   that it arrived. These reads go through `lookups.md` (K070): the STATE note and a failed log in a
+   small Haiku worker that returns a short summary, the queue by script; the run opens the source
+   only for the item it acts on.
+2. Works the queue under the project's rules (`core.md`, the rulebook). When `papercut.mjs due`
+   prints `PAPERCUTS: DUE`, the run posts the weekly digest and files cards for the top three
+   groups (`papercuts.md`, C28). It removes `wake` from each
    issue it has handled. It may set `wake` on an issue to hand work to the next run. That counts
    against the same caps.
 3. Writes the STATE issue body: what changed, what is open, the next action and who owns it, and

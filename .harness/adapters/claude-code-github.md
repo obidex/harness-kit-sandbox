@@ -71,6 +71,15 @@
     conversation. A wait past the prompt-cache window (about an hour) leaves a C04 handover and ends.
 - **A07 Context budget.** Compact before about 200k tokens. Noisy steps (install, build, lint,
   test) write to a log file and print only exit code and summary; read the log only on failure.
+- **A25 A wake costs the whole context (K070).** Every wake re-reads the thread's context, so a turn
+  that only notes a finished task costs as much to start as one that works. Measured on one busy day
+  (25 Nov 2026, 20 threads, 140 wakes): 57 wakes ended within four model calls, 9% of the day's use,
+  most of them started by a finished background task. So: a subagent or command whose result the very
+  next step needs runs in the foreground; background work is for work that runs while you do other
+  work. Background work that finishes after its result already reached you (a subagent's hand-back
+  followed by its task notice) ends the turn with no tool call. A wait on CI or a review is a PR event
+  (A06) or one reminder, never a polling loop in the thread; a poll that cannot be avoided runs in a
+  Haiku worker that returns one line (`lookups.md`).
 - **A08 Push coherent changes.** Push once quick checks pass, not several unfinished pushes: each
   push cancels and restarts the PR's CI.
 - **A09 Shell lessons.** Count with `grep -o … | wc -l`, not `grep -c`; under `pipefail` a trailing
@@ -196,3 +205,4 @@
 | A22 | GitHub hosts a public repo | The limit is declared and renewed before it lapses. | K030 | script: when the live repository has an interaction limit (read through the API), the settings file declares `interaction_limits`. |
 | A23 | a coordinator starts threads | Each thread runs on the model and effort its risk calls for, named at its start and switched only by the coordinator, its models in the state note; subagents' model and effort are named or inherited knowingly; every scheduled helper task names Haiku (K058); long threads hand over instead of compacting cold; `/usage` is read weekly. | K032, K049, K066; O06 | judgment: sampled threads' first messages name model and effort matching their work and risk; the weekly brief carries a usage line. |
 | A24 | a step on an approved card is stopped by a safety check or prompt on the owner's own machine, or a permission line would spare him a repeated manual step | The owner got one offer in the six-part shape (decision, whole edit with minutes, what the lines open, untested warning, read-back after done, result with proof) after existing routes and before any manual step; he alone edited the permission file; a refusal was never retried, reworded or routed around; no offer touched his reserved list; the lines are narrow or carry a reason and date; the project's list names each line, what it opens, its card and date. | K045 (owner, 11 Nov 2026: roadmap #101, from a runner-setup thread); C14; O17 | judgment: sampled stops on the owner's machine ended in the offer, not a workaround or a manual step; the list matches the owner's file as he reported it; no wide line covers a machine with real data. |
+| A25 | a thread waits on a subagent, a background command, CI or a review | Work whose result the next step needs ran in the foreground; a notice for work whose result had already arrived ended its turn with no tool call; CI and reviews were waited on by PR event or one reminder, never by a polling loop in the thread; an unavoidable poll ran in a Haiku worker. | K070 (strategist request roadmap #197 under the owner's 26 Nov 2026 approval on roadmap #194: measure the waiting share, move it to events or a Haiku worker) | judgment: the waiting share (wakes ending within four model calls, by weighted use) on a busy day after the release, against 9% on 25 Nov 2026, posted on roadmap #197. |

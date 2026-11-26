@@ -52,7 +52,7 @@ credit, not on this allowance, and keep their own models.
 
 | Work | Model | Effort |
 |---|---|---|
-| Log digest, read-only helper | Haiku | low |
+| Log digest, read-only helper; the state note and a failed log, briefs in `lookups.md` (K070) | Haiku | low |
 | Scheduled helper task (a daily start, a check-in, a kickoff), named in its settings, never the account default (O06, K058) | Haiku | low |
 | Builder thread, clear and bounded (tier 1-2) | Opus | medium |
 | Builder thread, hard, risky or unattended (tier 1-2) | Opus | high |
