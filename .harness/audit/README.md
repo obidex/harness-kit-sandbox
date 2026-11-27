@@ -22,10 +22,12 @@ with "judgment review" as evidence.
   judgment review as PASS with that citation, or as a conflict (below).
 - **The baseline.** `.harness/audit-baseline.json` (project-owned) lists accepted results, each with
   `why`. An entry with `result: FAIL` accepts that rule's FAIL in `--strict`. An entry with `commits`
-  (SHAs, 7+ characters) is a known exception instead: A10, O09 and C17's lost-lines test skip exactly
-  those commits (history is never rewritten) and still FAIL on any other, so the exception never hides
-  a recurrence. C17's is for the closed decisions log's entry moved word for word into its own file
-  (`decisions.md`, K067); its caps, budget and decisions checks are never skipped.
+  (SHAs, 7+ characters) is a known exception instead: A10, O09, C17's lost-lines test and C17's
+  "never edited" test skip exactly those commits (history is never rewritten) and still FAIL on any
+  other, so the exception never hides a recurrence. C17's is for the closed decisions log's entry moved
+  word for word into its own file (`decisions.md`, K067), or for a written decision file changed only to
+  take out what a rule keeps out of files, such as a name (K073); its caps, budget and decisions-register
+  checks are never skipped.
 
 ## 2. Judgment review (sampled, by a fresh-context reviewer)
 

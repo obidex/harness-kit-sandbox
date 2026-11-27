@@ -38,6 +38,7 @@ Installed in each project as a pinned copy (K001). Layers, not systems:
 | Papercuts (C28, K070): an agent files one short report on its project's private papercut issue when a tool, skill or rule fights it, and carries on; the coordinator's run posts a weekly digest across projects and files cards for the top three; the issue's count line feeds a status page | `papercuts.md`, `tools/papercut.mjs` | Lookup; tool run, never loaded |
 | Read-only lookups (K070): the state note and a failed log read by a Haiku worker that returns a short summary, the queue and the papercut table by script | `lookups.md` | Lookup |
 | Runbook and skill linter (K070): numbered steps, a command and a check per step, a failure table, for every `SKILL.md` and every file marked `<!-- runbook -->` | `tools/steps.mjs` | Run, never loaded |
+| Where the allowance goes (K072): from the threads' own session records, read back through `list_threads` and `list_events` by a Haiku paging worker, the price-weighted use by model, role, what started the turn and a warm or cold first call; the waiting share; the heaviest threads and tool results; calibrated against the allowance page | `usage.md`, `tools/usage.mjs` | Lookup; tool run, never loaded |
 
 `VERSION` is the kit version a project pins (imported by `CLAUDE.md`); cards record it. In a project,
 `kit.lock.json` lists every kit-managed file with its hash; `profile.json` is the project's own.

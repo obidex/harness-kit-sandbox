@@ -23,6 +23,8 @@
 //                        thread that was not there when its checks went green
 //   stalls               open now and idle over 24 hours: non-draft PRs, and issues labelled card,
 //                        risk:* or inbox
+//   answered, not closed open `inbox` requests already answered: State `done` in the body, or the newest
+//                        comment that no bot wrote has a line that opens DONE (C03); its thread closes it
 //   owner touches        (needs --owner) writes from the owner's own account that no agent app made and that carry no
 //                        hidden <!-- marker -->: issues and PRs opened, comments. An UPPER bound: an agent
 //                        writing through a plain token is counted too.
@@ -38,6 +40,7 @@ export const MAX_PRS = 40;          // merged agent PRs read in detail per repos
 export const MAX_PAGES = 10;        // pages of 100 for any one listing
 export const STALL_HOURS = 24;
 export const WAIT_MINUTES = 30;     // a PR that sat green longer than this waited on its thread (K069)
+export const MAX_ANSWERED = 60;     // open inbox requests whose newest comment is read
 const HOUR = 3600000, DAY = 24 * HOUR;
 const ATTRIBUTION = /claude-projects-attribution/;
 
@@ -65,6 +68,17 @@ async function pages(path, { stop = () => false, max = MAX_PAGES, key } = {}) {
 
 export const isAgent = (item, apps) => apps.includes(item?.performed_via_github_app?.slug) || ATTRIBUTION.test(item?.body || '');
 export const hasMarker = (body) => /<!--/.test(String(body || ''));
+/** A line that opens with the status word DONE (C03: `DONE — …`, or the last line `DONE`), bold, bulleted
+ *  or a heading; `DONE.`, `DONE,` and `DONE (…)` too, but not a longer word or `DONE-when`. */
+export const doneLine = (text) => /^[ \t>*_#-]*DONE[*_]*[ \t]*(?:$|[—–:.,(]|-(?![\w-]))/m.test(String(text || ''));
+const isBot = (u) => u?.type === 'Bot' || /\[bot\]$/.test(u?.login || '');
+/** An open inbox request already answered: its State line says done, or its newest comment that no bot
+ *  wrote carries a DONE line. `comments` is the request's comments, oldest first. */
+export function answered(issue, comments = []) {
+  if (/^\s*-?\s*\*\*State:\*\*[ \t]*done\s*$/im.test(String(issue?.body || ''))) return true;
+  const last = comments.filter((c) => !isBot(c.user)).at(-1);
+  return !!last && doneLine(last.body);
+}
 
 const WORDS = { no: 0, zero: 0, none: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 /** Blocks per review round from text: "Round 2: 3 blocks", "Round 1 had 3 blocks", "Round 4: no blocks". */
@@ -187,12 +201,28 @@ export async function measure(repo, { now = Date.now(), days = 7, owner = null, 
   } else out.falseDone = null;
 
   // stalls: open and idle over 24 h
+  let openItems = null;
   out.stalls = await section(errors, 'open items', async () => {
     const r = await pages(`/repos/${repo}/issues?state=open&sort=updated&direction=asc`, { max: 5 });
     if (r.cut) partial.push('open items');
     const idle = (i) => now - Date.parse(i.updated_at) > STALL_HOURS * HOUR;
     const watched = (i) => (i.pull_request ? !i.draft : (i.labels || []).some((l) => /^(card|inbox|risk:.+)$/.test(typeof l === 'string' ? l : l.name)));
     const items = r.items.filter((i) => watched(i) && idle(i)).map((i) => i.number);
+    openItems = r.items;
+    return { count: items.length, items };
+  });
+
+  // answered, not closed: open inbox requests whose answer already says DONE (roadmap#204)
+  out.answeredOpen = !openItems ? null : await section(errors, 'inbox answers', async () => {
+    const inbox = openItems.filter((i) => !i.pull_request && (i.labels || []).some((l) => (typeof l === 'string' ? l : l.name) === 'inbox'));
+    if (inbox.length > MAX_ANSWERED) partial.push('inbox answers');
+    const items = [];
+    for (const i of inbox.slice(0, MAX_ANSWERED)) {
+      const last = Math.max(1, Math.ceil((i.comments || 0) / 100));
+      let cs = i.comments ? await get(`/repos/${repo}/issues/${i.number}/comments?per_page=100&page=${last}`) : [];
+      if (i.comments && last > 1 && !cs.some((c) => !isBot(c.user))) cs = [...await get(`/repos/${repo}/issues/${i.number}/comments?per_page=100&page=${last - 1}`), ...cs];
+      if (answered(i, cs)) items.push(i.number);
+    }
     return { count: items.length, items };
   });
 
@@ -222,11 +252,12 @@ export function render(results, { days = 7 } = {}) {
     m.satGreen ? `${m.satGreen.measured ? `${num(m.satGreen.medianMinutes)} min` : '-'}, ${m.satGreen.over} of ${m.satGreen.measured} over ${WAIT_MINUTES}` : '?',
     m.falseDone ? num(m.falseDone.total) : '?',
     m.stalls ? num(m.stalls.count) : '?',
+    m.answeredOpen ? num(m.answeredOpen.count) : '?',
     m.ownerTouches ? num(m.ownerTouches.perWeek) : '?',
   ]);
   const lines = [
-    `| Repository | Agent PRs merged | First-pass CI green | Review BLOCKs per reviewed PR | Sat green before merge (median; over ${WAIT_MINUTES} min) | False DONEs | Stalls now (idle > 24 h) | Owner touches a week (at most) |`,
-    '|---|---|---|---|---|---|---|---|',
+    `| Repository | Agent PRs merged | First-pass CI green | Review BLOCKs per reviewed PR | Sat green before merge (median; over ${WAIT_MINUTES} min) | False DONEs | Stalls now (idle > 24 h) | Answered, not closed | Owner touches a week (at most) |`,
+    '|---|---|---|---|---|---|---|---|---|',
     ...rows.map((r) => `| ${r.join(' | ')} |`),
     '',
     `Last ${days} days. Definitions: the kit's \`.harness/metrics.md\`. "?" means GitHub could not be read for it, never zero.`,

@@ -72,7 +72,8 @@ When an inbox wake or a routine wakes you, or at the start of a coordinator turn
    3. Do the work under this project's own rules (card, PR, gates). Progress goes as comments on the
       issue.
    4. Run `state --to done --note "<evidence>"`: the PR, the check run, the command and its output.
-      This closes the issue. The sender reads it there.
+      This closes the issue in the same step as the DONE line (K071); an issue with no inbox-id is
+      closed by hand with the same evidence. The sender reads it there.
    5. **Start the project that asked, in this same turn (K056).** After `done` or `blocked`, run
       the `wake.mjs handoff` line the tool printed (it names the Source's repository; attach it
       with push access first) and obey its last line as in "Sending a request", step 3. No line
