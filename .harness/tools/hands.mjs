@@ -17,7 +17,9 @@
 //                                 [--was <the kit it pins now>]   move the control repository's pin AND its workflow
 //                                                           copies to that kit; prints each path to stage (K053)
 //   node .harness/tools/hands.mjs keep [--only owner/name]  bring every open kit update PR that is behind its base up
-//                                                           to date (K012); JSON {watched, updated} on stdout
+//                                                           to date (K012); one whose required checks pass but that
+//                                                           auto-merge does not merge asks its project's coordinator
+//                                                           to merge it, once (K075); JSON {watched, updated, asked}
 //
 // Only the control repository's reviewed workflows on its main branch run discover, plan and apply,
 // with a token minted from the App for that job alone (GH_TOKEN). A project changes its settings by
@@ -35,6 +37,7 @@ import { readFileSync, existsSync, readdirSync, appendFileSync, writeFileSync, m
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateSchema, parseYaml, triggers, plainValueProblems, ghCall, ghClient, ghPages } from './lib.mjs';
+import { body as inboxBody, parse as inboxParse, trusted as inboxTrusted, deliver as inboxDeliver, LABEL as INBOX_LABEL } from './inbox.mjs';
 
 export const SETTINGS_PATH = '.github/harness-settings.json';
 /** True when HANDS_PAUSED names the repository or is `*`. */
@@ -261,10 +264,48 @@ export function keepAction(pr, { now = Date.now(), hours = 72, bot } = {}) {
 }
 export const watched = (action) => !['not a kit update', "not the App's", 'old'].includes(action);
 
+// --- a kit update PR that is ready but that nobody merges (K075) ---------------------------------------
+// GitHub's "clean" or "unstable" means every required check and review passes ("unstable": a check that is
+// not required failed). With auto-merge on, GitHub merges it; with auto-merge off (the project's settings
+// say allow_auto_merge false, K023, or GitHub refused to turn it on) nobody would, and a kit update must
+// never wait a night for a person or a morning run. keep then files one inbox request in that repository
+// and wakes its coordinator, who merges it on its gates (O11). One request per PR, never a second.
+/** Is this kit PR ready, with nothing to merge it? */
+export const mergeWaits = (pr) => !pr.draft && !pr.auto_merge && ['clean', 'unstable'].includes(pr.mergeable_state);
+/** The inbox ID of the request that asks for one PR's merge. */
+export const mergeRequestId = (pr) => `kit-update/merge-pr-${pr.number}`;
+/** The request's fields (inbox.mjs body): the PR, why it waits, who merges it. */
+export function mergeRequest(repo, pr) {
+  const failed = pr.mergeable_state === 'unstable' ? ' (a check that is not required failed; it does not block the merge)' : '';
+  return {
+    id: mergeRequestId(pr),
+    title: `Merge the kit update PR #${pr.number}: its required checks pass`,
+    source: pr.html_url || `https://github.com/${repo}/pull/${pr.number}`,
+    outcome: `Kit update PR #${pr.number} ("${pr.title || pr.head.ref}") passes every required check${failed}, and auto-merge is not on here, so nothing merges it: merge it on its gates (O11), then mark this request done with the merge commit.`,
+    coordinator: `${repo}'s coordinator`,
+    coveredBy: 'Harness Kit K075 and K023: a kit update PR merges on its required checks; where auto-merge is off by the project\'s own settings, its coordinator merges it on its gates (O11).',
+  };
+}
+
+/** File the merge request once and wake the coordinator. Returns a line for the log, or null when an
+ *  earlier run already asked (the request exists, open or closed). */
+async function askMerge(repo, pr) {
+  const r = mergeRequest(repo, pr);
+  const { items } = await ghPages(must, `/repos/${repo}/issues?labels=${INBOX_LABEL}&state=all`, { max: 50 });
+  const have = items.find((i) => !i.pull_request && inboxTrusted(i) && inboxParse(i.body)?.id === r.id);
+  if (have) return null;
+  const text = inboxBody(r);
+  const i = await must('POST', `/repos/${repo}/issues`, { title: r.title, body: text, labels: [INBOX_LABEL] });
+  let w;
+  try { w = await inboxDeliver(must, repo, { number: i.number, url: i.html_url, fields: inboxParse(text) }); }
+  catch (e) { w = { delivered: false, why: e.message.slice(0, 160) }; }
+  return `hands: ${repo}: #${pr.number} (${pr.head.ref}) passes its required checks and auto-merge is not on: asked its coordinator to merge it (${i.html_url}; ${w.delivered ? `woke it on ${w.where || 'the request'}` : `wake not delivered: ${w.why}; the request stays queued for its next run`})`;
+}
+
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 /** One repository: every open kit update PR of the App's, each behind one updated. */
 async function keepRepo(repo, opts, log) {
-  let seen = 0, updated = 0;
+  let seen = 0, updated = 0, asked = 0;
   const { items: open } = await ghPages(must, `/repos/${repo}/pulls?state=open`, { max: 20 });
   for (const listed of open) {
     if (!watched(keepAction({ ...listed, mergeable_state: 'unknown' }, opts))) continue;
@@ -274,13 +315,18 @@ async function keepRepo(repo, opts, log) {
     const action = keepAction(pr, opts);
     if (!watched(action)) continue;
     seen++;
+    if (action === 'current' && mergeWaits(pr)) {
+      const line = await askMerge(repo, pr);
+      if (line) { asked++; log(line); } else log(`hands: ${repo}: #${pr.number} (${pr.head.ref}) waits for its coordinator to merge it (asked on an earlier run)`);
+      continue;
+    }
     if (action !== 'update') { log(`hands: ${repo}: #${pr.number} (${pr.head.ref}) is ${action === 'wait' ? 'still being checked by GitHub' : action}; nothing to do`); continue; }
     const r = await api('PUT', `/repos/${repo}/pulls/${pr.number}/update-branch`, { expected_head_sha: pr.head.sha });
     if (r.status !== 202) throw new Error(`${repo}: #${pr.number} is behind ${pr.base.ref}, but update-branch answered ${r.status}: ${JSON.stringify(r.data).slice(0, 200)}`);
     updated++;
     log(`hands: ${repo}: applied update-branch to #${pr.number} (${pr.head.ref}): it was behind ${pr.base.ref}; its checks run again and auto-merge goes on`);
   }
-  return { seen, updated };
+  return { seen, updated, asked };
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
@@ -398,12 +444,12 @@ async function main() {
     const self = process.env.GITHUB_REPOSITORY;
     if (self && !all.some((r) => r.toLowerCase() === self.toLowerCase())) all.push(self);
     const repos = all.filter((r) => !only || r.toLowerCase() === only);
-    let total = 0, updated = 0, failed = 0;
+    let total = 0, updated = 0, asked = 0, failed = 0;
     for (const repo of repos) {
-      try { const r = await keepRepo(repo, opts, note); total += r.seen; updated += r.updated; } catch (e) { failed++; note(`hands: ${repo}: FAIL ${e.message}`); }
+      try { const r = await keepRepo(repo, opts, note); total += r.seen; updated += r.updated; asked += r.asked; } catch (e) { failed++; note(`hands: ${repo}: FAIL ${e.message}`); }
     }
-    note(`hands: ${total} open kit update PR(s) watched, ${updated} brought up to date`);
-    console.log(JSON.stringify({ watched: total + failed, updated }));
+    note(`hands: ${total} open kit update PR(s) watched, ${updated} brought up to date, ${asked} merge(s) asked of a coordinator`);
+    console.log(JSON.stringify({ watched: total + failed, updated, asked }));
     if (failed) process.exitCode = 1;
     return;
   }
