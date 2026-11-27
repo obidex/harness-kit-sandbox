@@ -43,3 +43,6 @@ written as a file; its rulebook's pointer to the register names the folder too. 
 started on the older kit and appended to the log is caught by the check and moves its entry into a
 file. That move removes lines from the closed log, which the audit's C17 reports; the project lists the
 move's commit for C17 in its audit baseline (`commits`, with `why`), and C17 skips that commit only (K067).
+A written decision file is never edited; the one exception is a change that only takes out what a rule
+keeps out of files (a name, a host). Its commit is listed for C17 the same way, and the "never edited"
+test skips that commit only (K073).

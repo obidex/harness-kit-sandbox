@@ -10,7 +10,9 @@ One request is one issue labelled `inbox` in the repository that does the work, 
 Source, Outcome, Responsible coordinator, Covered by, State (`queued`, `working`, `blocked`,
 `done`) and Evidence. Only `inbox.mjs` edits them. The ID is stable, so a redelivered request finds
 the existing issue and files nothing. `done` closes the issue with its evidence; replies and
-progress are comments on it.
+progress are comments on it. The thread that answers a request closes it in the same step as its
+DONE line (K071): `state --to done`, or by hand with the same evidence for an issue with no inbox-id;
+one left open after DONE is a papercut (C28), and `metrics.mjs` counts it as answered, not closed.
 
 A request proceeds only if an existing, verified owner decision or standing delegation covers its
 scope; citing a decision never expands it.

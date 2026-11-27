@@ -156,7 +156,7 @@ const commitLog = (n) => git('log', `-${n}`, '--format=%H%x1f%an%x1f%s%x1f%b%x1e
 // --- the baseline: the project's accepted FAILs (whole rules) and known commit exceptions -------------
 // An entry with `commits` (each a SHA of 7+ characters) is a known exception, not an accepted rule: the
 // rule skips exactly those commits (history that is never rewritten) and still FAILs on any other.
-// Honoured by A10, O09 and C17's lost-lines test (K067).
+// Honoured by A10, O09, C17's lost-lines test (K067) and C17's never-edited test (K073).
 const basePath = opt('--baseline') ? resolve(opt('--baseline')) : join(root, '.harness/audit-baseline.json');
 let baseline = [];
 try { baseline = existsSync(basePath) ? JSON.parse(readFileSync(basePath, 'utf8')).results || [] : []; } catch (e) { if (flags.has('--strict')) throw e; }
@@ -435,11 +435,17 @@ const checks = {
       // correction in its history and still fails afterwards), so it is not an edit; without that branch,
       // this checkout's own history
       const names = (out) => (out || '').split('\n').filter(Boolean);
+      // a commit the baseline lists for C17 (K073: a redaction on the owner's rule, history never rewritten) is
+      // skipped here too, by its SHA; any other commit that touches a written decision still FAILs
+      const edits = (...range) => {
+        const { kept, skipped } = exceptCommits('C17', git('log', '-200', '--diff-filter=MDR', '--name-only', '--format=%x1e%H', ...range, '--', reg.folder) || '');
+        return { files: kept.flatMap((c) => names(c).slice(1)), skipped };
+      };
       const base = [`origin/${defaultBranch}`, defaultBranch].find((r) => git('rev-parse', '--verify', '--quiet', `${r}^{commit}`));
-      const touched = base
-        ? [...names(git('log', '-200', '--diff-filter=MDR', '--name-only', '--format=', base, '--', reg.folder)), ...names(git('diff', '--diff-filter=MDR', '--name-only', `${base}...HEAD`, '--', reg.folder))]
-        : names(git('log', '-200', '--diff-filter=MDR', '--name-only', '--format=', '--', reg.folder));
+      const hist = base ? edits(base) : edits();
+      const touched = [...hist.files, ...(base ? names(git('diff', '--diff-filter=MDR', '--name-only', `${base}...HEAD`, '--', reg.folder)) : [])];
       if (touched.length) problems.push(`${[...new Set(touched)].slice(0, 5).join(', ')} changed after it was written: a decision is superseded by a new file, never edited (needs judgment)`);
+      else if (hist.skipped) lostNote += `; ${hist.skipped} known edit(s) of a decision file in the baseline skipped`;
     }
     for (const g of profile.canon.generated || []) if (!has(g)) problems.push(`generated ${g} missing`);
     const drift = (profile.canon.generated || []).length && /git diff --exit-code|--check|drift/i.test(wfText);
