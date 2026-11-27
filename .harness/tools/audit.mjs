@@ -21,11 +21,11 @@ import { readFileSync, existsSync, writeFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { parseYaml, triggers, gh, validateSchema, fileHash, renderLane, unrenderLane, laneIn, LANE_FILE_RE } from './lib.mjs';
+import { parseYaml, triggers, gh, validateSchema, fileHash, renderLane, unrenderLane, laneIn, LANE_FILE_RE, plainFail } from './lib.mjs';
 import { scrub } from './scrub.mjs';
 import { plan as settingsPlan, validate as settingsValidate, SETTINGS_PATH } from './hands.mjs';
 import { loadSet, DEFAULT_BUDGET } from './load.mjs';
-import { problems as decisionProblems, load as loadDecisions } from './decisions.mjs';
+import { problems as decisionProblems, load as loadDecisions, folderFor, verifiedMove, recordedEdit } from './decisions.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
@@ -418,12 +418,17 @@ const checks = {
     if (!has(d)) problems.push(`decisions file ${d} missing`);
     else {
       // a commit the baseline lists for C17 (K067: the closed log's entry moved word for word into its own
-      // file, as decisions.md prescribes) is skipped by this test only; any other line lost still FAILs
+      // file, as decisions.md prescribes) is skipped by this test only; so is a commit the audit itself proves is
+      // such a move (K079: every line it took out is, word for word, a decision file it added); any other line
+      // lost still FAILs
       const diff = git('log', '-50', '-p', '--format=%x1e%H', '--', d) || '';
       const { kept, note } = exceptCommits('C17', diff);
-      const removing = kept.filter((c) => c.split('\n').some((l) => /^-[^-]/.test(l) && l.trim() !== '-')).map((c) => c.trim().slice(0, 7));
-      if (removing.length) problems.push(`${d} lost lines in ${removing.length} of its recent commits (${removing.slice(0, 5).join(', ')}): append-only needs judgment${note}`);
-      else lostNote = note;
+      const losing = kept.filter((c) => c.split('\n').some((l) => /^-[^-]/.test(l) && l.trim() !== '-')).map((c) => c.trim().slice(0, 40));
+      const moves = losing.filter((sha) => verifiedMove(git('show', '--format=', '-p', sha, '--', d, folderFor(d)) || '', d, folderFor(d)));
+      const removing = losing.filter((sha) => !moves.includes(sha)).map((sha) => sha.slice(0, 7));
+      const moveNote = moves.length ? `; ${moves.length} verified move(s) out of the closed log (${moves.map((x) => x.slice(0, 7)).join(', ')})` : '';
+      if (removing.length) problems.push(`The closed decisions log ${d} lost lines in ${removing.length} recent commit(s) (${removing.slice(0, 5).join(', ')}) that are not a word-for-word move into a decision file; append-only needs judgment${note}${moveNote}`);
+      else lostNote = note + moveNote;
     }
     // one file per decision (K052): names, numbers used once, the log closed; a written file is never edited
     {
@@ -435,17 +440,34 @@ const checks = {
       // correction in its history and still fails afterwards), so it is not an edit; without that branch,
       // this checkout's own history
       const names = (out) => (out || '').split('\n').filter(Boolean);
+      const idOf = (f) => f.split('/').pop().replace(/\.md$/, '');
       // a commit the baseline lists for C17 (K073: a redaction on the owner's rule, history never rewritten) is
-      // skipped here too, by its SHA; any other commit that touches a written decision still FAILs
+      // skipped here too, by its SHA; so is a past commit a newer decision records by naming it and the decision it
+      // changed (K079, `decisions.mjs new --supersedes <ID> --commits <sha>`; only where the default branch resolves, so
+      // the checkout's own commits are never excused); any other commit that touches a
+      // written decision still FAILs, and this checkout's own change against the default branch always does
       const edits = (...range) => {
         const { kept, skipped } = exceptCommits('C17', git('log', '-200', '--diff-filter=MDR', '--name-only', '--format=%x1e%H', ...range, '--', reg.folder) || '');
-        return { files: kept.flatMap((c) => names(c).slice(1)), skipped };
+        const open = [], recorded = [];
+        for (const c of kept) {
+          const [sha, ...files] = names(c);
+          if (base && files.length && recordedEdit(sha, [...new Set(files.map(idOf))], reg.files)) recorded.push(sha); else open.push({ sha, files });
+        }
+        return { open, skipped, recorded };
       };
       const base = [`origin/${defaultBranch}`, defaultBranch].find((r) => git('rev-parse', '--verify', '--quiet', `${r}^{commit}`));
       const hist = base ? edits(base) : edits();
-      const touched = [...hist.files, ...(base ? names(git('diff', '--diff-filter=MDR', '--name-only', `${base}...HEAD`, '--', reg.folder)) : [])];
-      if (touched.length) problems.push(`${[...new Set(touched)].slice(0, 5).join(', ')} changed after it was written: a decision is superseded by a new file, never edited (needs judgment)`);
-      else if (hist.skipped) lostNote += `; ${hist.skipped} known edit(s) of a decision file in the baseline skipped`;
+      const own = base ? names(git('diff', '--diff-filter=MDR', '--name-only', `${base}...HEAD`, '--', reg.folder)) : [];
+      const touched = [...new Set([...hist.open.flatMap((c) => c.files), ...own])];
+      if (touched.length) {
+        const by = (f) => hist.open.filter((c) => c.files.includes(f)).map((c) => c.sha.slice(0, 7));
+        const say = touched.slice(0, 5).map((f) => `Decision ${idOf(f)} (${f}${by(f).length ? `, commit ${by(f).slice(0, 3).join(', ')}` : ', this change'})`);
+        const first = touched[0], firstBy = by(first);
+        problems.push(`${say.join('; ')} ${touched.length > 1 ? 'were' : 'was'} changed after it was written. A decision is never edited: write a new one that points to it, \`node .harness/tools/decisions.mjs new --supersedes ${idOf(first)}${firstBy.length ? ` --commits ${firstBy.join(',')}` : ''}\`${own.length ? ', and undo the edit here' : ''}`);
+      } else {
+        if (hist.skipped) lostNote += `; ${hist.skipped} known edit(s) of a decision file in the baseline skipped`;
+        if (hist.recorded.length) lostNote += `; ${hist.recorded.length} past edit(s) of a decision recorded by a newer decision (${hist.recorded.map((x) => x.slice(0, 7)).join(', ')})`;
+      }
     }
     for (const g of profile.canon.generated || []) if (!has(g)) problems.push(`generated ${g} missing`);
     const drift = (profile.canon.generated || []).length && /git diff --exit-code|--check|drift/i.test(wfText);
@@ -585,7 +607,9 @@ const checks = {
       const d = Number(u?.cooldown?.['default-days']);
       if (!(d >= 3 && d <= 7)) problems.push(`dependabot ${u?.['package-ecosystem'] || '?'} ${u?.directory || u?.directories || ''}: cooldown default-days ${Number.isFinite(d) ? d : 'missing'} (3 to 7)`);
     }
-    const npm = tracked.some((f) => /(^|\/)package\.json$/.test(f) && !f.includes('node_modules/'));
+    // the kit's own pinned package (.harness/tools/agent-sdk, K077) is the kit's to pin, with its lock, not the project's
+    // npm use: counting it turned every project's A17 red on the kit update that shipped it (found by the trial, K079)
+    const npm = tracked.some((f) => /(^|\/)package\.json$/.test(f) && !f.includes('node_modules/') && !f.startsWith('.harness/'));
     if (npm) {
       const age = has('.npmrc') ? Number((read('.npmrc').match(/^\s*min-release-age\s*=\s*(\d+)/m) || [])[1]) : NaN;
       if (!(age >= 3)) problems.push(`.npmrc: min-release-age ${Number.isFinite(age) ? age : 'not set'} (3 or more)`);
@@ -770,6 +794,8 @@ if (flags.has('--strict')) {
   const fresh = results.filter((r) => r.result === FAIL && !accepted.has(r.id));
   if (fresh.length) {
     for (const r of fresh) console.log(`audit: FAIL ${r.id} ${r.title}: ${r.evidence}`);
+    // one plain line per failed rule where a status feed reads it (K079): the check run's annotations
+    for (const r of fresh) plainFail(`harness-audit ${r.id}`, `${r.title}: ${r.evidence}`);
     process.exit(1);
   }
   if (accepted.size) console.log(`audit: no FAIL beyond the ${accepted.size} accepted in the baseline`);

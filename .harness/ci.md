@@ -193,3 +193,22 @@ between jobs, so do not wipe them in a step.
 A chore finishes within 2 minutes of its event; a test run starts within 5 minutes; a documents-only
 change is checked in under 3 minutes; the nightly full run is green; no required check was removed;
 the month's GitHub-hosted minutes stay inside the plan's allowance (the billing page; O13).
+
+## 6. Repeats and wakes (K078)
+
+Two meters, never added: runner minutes (machine time, `metrics.md` §4) and wakes (the allowance: a
+thread or a reviewer started). Plain CI spends only the first.
+
+- **An unchanged revision going through the same checks again wakes nobody.** Code handles ordinary
+  progress. An agent is woken for a new failure it can act on, a changed revision that needs review, or a
+  decision; never because the same change was tested again (a merge of the base, a re-run, an edited
+  title). The second reviewer keys its review to the change itself, not the commit (`review.md`).
+- **A project whose avoidable hours stand out gets its cause investigated, not a copied fix.** A cancelled
+  run that never got a runner costs nothing; a passing repeat of 20 minutes costs a lot. Read the causes
+  first: runs per change is a hint, not a trigger.
+- **No run of the default branch is cancelled half-way by the next merge.** `concurrency` cancels in
+  progress only for pull requests (`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`): a newer
+  merge waits, a waiting one that is overtaken is dropped before it starts (no minutes), and the merge
+  commit that runs reports (C13).
+- **In a repository without the "must be up to date" rule, a pull request is not brought up to date** except
+  to clear a conflict GitHub reports; each merge of the base is a full run of every check.

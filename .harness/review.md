@@ -34,7 +34,8 @@ default branch, never from the pull request, so a pull request cannot switch its
   "command": "The owner's command of <day>: on until <date>, <what it covers>.",
   "federation_rule": "fdrl_…", "organization": "<uuid>", "service_account": "svac_…", "workspace": "wrkspc_…",
   "sweep_rule": "fdrl_…",
-  "note": "free text"
+  "note": "free text",
+  "scope": "What this project has decided is not a defect, in a few plain lines (K080)"
 }
 ```
 
@@ -70,7 +71,12 @@ It sees only the diff and the rulebook and cannot run code, so it can be wrong i
 ## What it does not review
 
 A fork's pull request, a bot's (a dependency update), a draft, a commit that is no longer the head, a
-commit it already answered, and a change to documents only. A rule file (`AGENTS.md`, `CLAUDE.md`,
+commit it already answered, a new commit whose change is the one the comment's newest run reviewed (K078: the diff with its blob
+ids and hunk line numbers left out is the same, as after a merge of the base or an empty commit; no
+model call and no comment, so nothing wakes the pull request's thread; a hunk moved unchanged to another
+place with the same context keeps the key, a known limit of an advisory reviewer; a head that goes back to an
+older change, or follows a run that was no review (too large, capped, out of room), is reviewed again, and an answer that ran out of room or came back empty is no review, while a refusal
+is never asked again, C14), and a change to documents only. A rule file (`AGENTS.md`, `CLAUDE.md`,
 `.claude/**`, `.harness/**`) is never "documents only". A change over 150,000 characters or 300
 files gets a line saying it is too large; a cut diff is never read as if it were whole.
 
@@ -78,8 +84,38 @@ files gets a line saying it is too large; a cut diff is never read as if it were
 
 Sonnet by default; Opus when a changed path is high-risk: the profile's `risk.tier3_paths`, and
 workflows and agent configuration in every project. Haiku never reviews (O06). Both run at medium
-effort with a bounded answer. The model ids and prices are constants in `review.mjs` and change
-only by a kit release.
+effort with a bounded answer of 16,000 tokens (thinking included; 8,000 until K080, which a large diff
+used up before any answer). When an answer ran out of room, the same change is asked again at low effort;
+that call's settings differ, so it writes the cache again (its worst case counts that). The call is
+streamed, so a long answer is never cut by the HTTP client's five-minute wait for headers. A call that
+breaks before its answer (the wait runs out, the stream is cut) may still be billed: it is recorded as
+`lost`, counted at its worst case against the day's cap, and the change is asked again. A call that never left the
+runner (no network) is counted the same way, the safe direction: an outage on the runner can use up the
+day's room in a few commits. A worst-case Opus
+review holds about $0.64 of the day's room, so a large high-risk change meets the cap sooner.
+The model ids and prices are constants in `review.mjs` and change only by a kit release.
+
+## Prompt caching (K080)
+
+What repeats goes first and is marked for the cache: the system text, the same for every call, and the
+rulebook, the same until the default branch changes it (its tag ends in a word made from its own text, so
+the bytes repeat; the pull request's tags keep a fresh random word). Then the pull request and its diff,
+unmarked. The full check and the specialist passes do the same with the system text and the rulebook, and
+there every batch after the first few of a run reads them. A cache read costs a twentieth of fresh input
+on these models, a five-minute cache write a quarter more, and every read renews the five minutes.
+
+Each run records fresh input (`in`), cache writes (`cw`) and cache reads (`cr`) apart and is priced at those
+rates; `review.mjs spent` gives `per_review` and `cache.read_share`, and a check's record issue shows the
+share of its input read from the cache. What to expect: the reviewer's rulebook and system text are a
+fifth to a quarter of a typical review's input and reviews of one repository are often more than five
+minutes apart, so the saving there is a few percent; within one full check the rules are read from the cache
+by nearly every batch. The staff guide (K074) sends no cache marker: each section's request is its own code,
+and its check comes in a later batch, past any cache's life; it already runs at the Batch API's half price.
+
+**A project's scope note.** `scope` in the settings file is plain text, at most 3,000 characters, of what the
+project has decided is not a defect (an interface left in one language until launch, applied migrations
+on example data). The full check and the specialist passes send it first in the rulebook, and the model is
+told not to report it. It is a reviewed change on the default branch like the rest of the file.
 
 ## The pull request is data
 
@@ -197,6 +233,34 @@ first. It reads code it cannot run, so a page can still be wrong: someone reads 
 
 Like the reviewer it cannot run code and sees one batch at a time, so a finding that depends on
 another folder says so, and "no findings" is not evidence that the code works (C07).
+
+## The agent sweep trial (K077)
+
+A trial of one more way to hunt bugs in existing code: the method of a thread's bug sweep (one module,
+high effort, a reader who did not write it, a bug counts only with an exact reproduction), run by the
+Claude Agent SDK in a job, so it is paid from the API credit and not from the weekly allowance.
+`tools/agent-sweep.mjs` with `templates/agent-sweep.yml`; not installed by the kit: a project copies the
+template into `.github/workflows/agent-sweep.yml` by an ordinary reviewed change.
+
+- **Read-only.** The agent has Read, Grep and Glob, inside the checkout only: a hook in the job refuses
+  every other tool and every path outside (symbolic links resolved, `.git` too). No Bash, no edits, no
+  web, no subagents, no MCP; the repository's settings, hooks, skills and CLAUDE.md are not loaded.
+  Running tests is a later step, only after its own review.
+- **No stored key.** Claude Code's own workload identity federation: GitHub's identity token for the run
+  sits in a 0600 file of the job's temporary folder, rewritten every 4 minutes and removed at the end;
+  Claude Code swaps it for an access token that lasts minutes, again on expiry. Its own federation rule,
+  pinned to `agent-sweep.yml` on the default branch and `workflow_dispatch`. Before anything is asked,
+  `claude auth status` must name that federation, so no other credential on the runner can pay. The
+  agent's step holds no GitHub token; `prepare` and `file` write the issues.
+- **Settings.** `.github/agent-sweep.json`: `until` and `command` (the switch, as K055), the four
+  identifiers (`federation_rule`, `organization`, `service_account`, `workspace`; not secrets), and
+  optionally `usd`, which may only lower the cap. Anything unexpected is off.
+- **Money.** $30 for every run of the trial and $15 a run, in code. Before a run starts its budget plus
+  $3 (the one call that may pass the SDK's budget) is written in the record issue ("Agent sweep trial:
+  the record"); it counts until the run's own cost replaces it, and a run that dies keeps it counted. A
+  run stopped before its first question records $0. Closing the record opens no new money.
+- **Output.** One issue per run: findings graded blocker, major or minor, each marked reproduced or
+  suspected; the coordinator sorts them (FIXED, TRACKED or DISMISSED). Private repositories only.
 
 ## Reading a result
 

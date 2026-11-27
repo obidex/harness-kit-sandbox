@@ -35,7 +35,7 @@ import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { footerLines } from './scrub.mjs';
-import { ghClient, ghPages } from './lib.mjs';
+import { ghClient, ghPages, plainFail } from './lib.mjs';
 
 /** Paths whose content agents load or execute. */
 // .github/ too: a PR that edits its own workflows could replace this very check (it runs from the PR's
@@ -114,7 +114,7 @@ async function prBody() {
     if (Date.now() >= until) {
       for (const l of found) console.log(`guard: FAIL the pull request body carries "${l.slice(0, 120)}"`);
       console.log('guard: FAIL remove the line from the pull request description (O09); the check runs again when it is edited');
-      summary('- **FAIL**: the pull request body carries a Claude footer (O09). Remove the line from the description.');
+      plainFail('harness-guard O09', `The pull request description carries Claude attribution ("${found[0].slice(0, 80)}"): remove that line; the check runs again when the description is edited`);
       process.exit(1);
     }
     await new Promise((r) => setTimeout(r, Math.min(step * 1000, Math.max(0, until - Date.now())) || 1));
@@ -134,7 +134,7 @@ async function main() {
   const local = localState(files);
   if (local.length) {
     console.log(`guard: FAIL local Claude Code state is committed (${local.join(', ')}): remove it and add it to .gitignore; a secret in it is burned (O04)`);
-    summary(`- **FAIL**: local Claude Code state is committed (${local.join(', ')}). Remove it and add it to \`.gitignore\`.`);
+    plainFail('harness-guard', `One person's local Claude Code state is committed (${local.join(', ')}): remove it and add it to .gitignore; a secret in it is burned (O04)`);
     process.exit(1);
   }
   const v = verdict({ pr, commits, files: files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean)), trusted });
@@ -150,6 +150,7 @@ async function main() {
     console.log(`guard: FAIL agent configuration changed (${list}) by an account the profile does not trust`);
     summary(`- **FAIL**: agent configuration changed (${list}) by an account the profile does not trust:`);
     for (const u of v.untrusted) summary(`  - ${u}`);
+    plainFail('harness-guard', `Agent configuration changed (${v.touched.slice(0, 3).join(', ')}${v.touched.length > 3 ? ' and more' : ''}) by an account the profile does not trust (${String(v.untrusted[0]).slice(0, 80)}): only a trusted account may change it (K030)`);
     process.exit(1);
   }
   if (v.dependabot) { console.log(`guard: Dependabot moved action pins (${list}); nothing else of agent configuration changed`); summary(`- Dependabot moved action pins (${list}) and changed nothing else of agent configuration.`); return; }
@@ -158,5 +159,5 @@ async function main() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  main().catch((e) => { console.error(`guard: ${e.message}`); process.exit(1); });
+  main().catch((e) => { console.error(`guard: ${e.message}`); plainFail('harness-guard', `The check could not judge the pull request: ${e.message}`); process.exit(1); });
 }

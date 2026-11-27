@@ -2,7 +2,7 @@
 // papercut — an agent's own report of friction, filed in one line and left behind (C28, K070).
 //
 //   node .harness/tools/papercut.mjs file --what <the tool, skill, rule or file> --tried <t>
-//        --expected <t> --happened <t> --fix <t> [--by <thread>] [--to owner/name#N]
+//        --expected <t> --happened <t> --fix <t> [--by <thread>] [--cause <cause>] [--to owner/name#N]
 //                                   one comment on the project's papercut issue, then the issue's
 //                                   table is rebuilt from every report; the session carries on
 //   node .harness/tools/papercut.mjs fixed --what <name> --note <the PR or release> [--to owner/name#N]
@@ -15,6 +15,11 @@
 //                                   the weekly grouping across projects: one ranked table of what is
 //                                   still open, most reports first; --post leaves it on that issue,
 //                                   which is what `due` reads (papercuts.md)
+//
+// --cause marks a failed check's report with one of the four causes of a failed first pass (K079): product,
+// flaky (an unreliable test), infrastructure, old-rule (an old finding surfaced by a new rule). The digest
+// lists those reports as the known causes, and a known cause seen twice with no fix recorded is flagged:
+// the card that answers it is a prevention, not another investigation.
 //
 // Where (in order): --to; the profile's `papercuts` ("owner/name#N"); else the current repository's
 // open issue labelled `papercut`, opened once by this tool when there is none. Never a public
@@ -39,6 +44,7 @@ export const FIXED_MARK = '<!-- papercut-fixed -->';
 export const BODY_MARK = '<!-- papercuts -->';
 export const DIGEST_MARK = '<!-- papercut-digest -->';
 export const FIELDS = ['tried', 'expected', 'happened', 'fix'];
+export const CAUSES = Object.freeze({ product: 'product defect', flaky: 'unreliable test', infrastructure: 'infrastructure', 'old-rule': 'old finding under a new rule' });
 export const MAX = 400;          // characters a field keeps: a papercut is short by design
 const ROWS = 30;                 // table rows kept in the issue body
 const WEEK = 7 * 24 * 3600 * 1000;
@@ -58,6 +64,7 @@ export function problems(r) {
   const p = [];
   if (!clean(r.what)) p.push('--what is required (the tool, skill, rule or file that fought you)');
   for (const f of FIELDS) if (!clean(r[f])) p.push(`--${f} is required`);
+  if (r.cause !== undefined && r.cause !== null && !(String(r.cause) in CAUSES)) p.push(`--cause is one of ${Object.keys(CAUSES).join(', ')}`);
   for (const [k, v] of Object.entries(r)) if (SECRETISH.test(String(v ?? ''))) p.push(`--${k} holds something shaped like a secret: never put one in a report`);
   return p;
 }
@@ -68,7 +75,7 @@ export function comment(r, { version } = {}) {
   const by = clean(r.by);
   return [MARK, `**Papercut** · \`${what}\`${by ? ` · from ${by}` : ''}${version ? ` · kit ${version}` : ''}`,
     `- **Tried:** ${clean(r.tried)}`, `- **Expected:** ${clean(r.expected)}`,
-    `- **Happened:** ${clean(r.happened)}`, `- **Fix:** ${clean(r.fix)}`].join('\n');
+    `- **Happened:** ${clean(r.happened)}`, `- **Fix:** ${clean(r.fix)}`, ...(r.cause ? [`- **Cause:** ${r.cause}`] : [])].join('\n');
 }
 export const fixedComment = (what, note) => [FIXED_MARK, `**Papercut fixed** · \`${clean(what).replace(/`/g, '')}\` · ${clean(note)}`].join('\n');
 
@@ -82,7 +89,7 @@ export function parse(comments) {
       const m = b.match(/\*\*Papercut\*\* · `([^`]+)`/);
       if (!m) continue;
       const field = (n) => (b.match(new RegExp(`^- \\*\\*${n}:\\*\\* (.*)$`, 'm')) || [])[1] || '';
-      out.push({ kind: 'report', what: m[1], key: keyOf(m[1]), at, url: c.html_url, tried: field('Tried'), expected: field('Expected'), happened: field('Happened'), fix: field('Fix') });
+      out.push({ kind: 'report', what: m[1], key: keyOf(m[1]), at, url: c.html_url, tried: field('Tried'), expected: field('Expected'), happened: field('Happened'), fix: field('Fix'), cause: field('Cause') in CAUSES ? field('Cause') : '' });
     } else if (b.trimStart().startsWith(FIXED_MARK)) {
       const m = b.match(/\*\*Papercut fixed\*\* · `([^`]+)` · (.*)$/m);
       if (m) out.push({ kind: 'fixed', what: m[1], key: keyOf(m[1]), at, note: m[2] });
@@ -95,8 +102,8 @@ export function parse(comments) {
 export function groups(items) {
   const g = new Map();
   for (const it of items) {
-    const x = g.get(it.key) || { key: it.key, what: it.what, open: 0, total: 0, last: '', fixed: '', example: '' };
-    if (it.kind === 'fixed') { x.open = 0; x.fixed = it.note; } else { x.open++; x.total++; x.last = it.at; x.example = it.fix; }
+    const x = g.get(it.key) || { key: it.key, what: it.what, open: 0, total: 0, last: '', fixed: '', example: '', cause: '', sinceFix: 0 };
+    if (it.kind === 'fixed') { x.open = 0; x.fixed = it.note; x.sinceFix = 0; } else { x.open++; x.total++; x.last = it.at; x.example = it.fix; if (it.cause) { x.cause = it.cause; x.sinceFix++; } }
     g.set(it.key, x);
   }
   return [...g.values()].sort((a, b) => b.open - a.open || (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
@@ -127,9 +134,17 @@ export function digest(sets, now = Date.now()) {
   for (const { where, items } of sets) for (const x of groups(items)) if (x.open) rows.push({ where, ...x });
   rows.sort((a, b) => b.open - a.open || (a.last < b.last ? 1 : -1));
   const week = sets.reduce((s, x) => s + counts(x.items, now).week, 0);
-  return [`**Papercuts, ${new Date(now).toISOString().slice(0, 10)}:** ${rows.reduce((s, x) => s + x.open, 0)} open across ${sets.length} issue(s); ${week} filed in the last 7 days.`, '',
+  const known = [];
+  for (const { where, items } of sets) for (const x of groups(items)) if (x.cause) known.push({ where, ...x });
+  known.sort((a, b) => b.total - a.total || (a.last < b.last ? 1 : -1));
+  const text = [`**Papercuts, ${new Date(now).toISOString().slice(0, 10)}:** ${rows.reduce((s, x) => s + x.open, 0)} open across ${sets.length} issue(s); ${week} filed in the last 7 days.`, '',
     ...(rows.length ? ['| Rank | Where | What | Open | Last | Suggested fix (latest) |', '|---|---|---|---|---|---|',
-      ...rows.map((x, i) => `| ${i + 1} | ${x.where} | \`${x.what.replace(/\|/g, '/')}\` | ${x.open} | ${x.last.slice(0, 10)} | ${(x.example || '—').replace(/\|/g, '/')} |`)] : ['Nothing open.'])].join('\n');
+      ...rows.map((x, i) => `| ${i + 1} | ${x.where} | \`${x.what.replace(/\|/g, '/')}\` | ${x.open} | ${x.last.slice(0, 10)} | ${(x.example || '—').replace(/\|/g, '/')} |`)] : ['Nothing open.'])];
+  // the known causes of failed checks (K079): one place, each with its cause and whether a fix is recorded; seen twice
+  // with no fix since, the card that answers it is a prevention, not another investigation
+  if (known.length) text.push('', '**Known causes of failed checks**', '', '| Where | What | Cause | Seen | Since its last fix | Fix recorded | Next |', '|---|---|---|---|---|---|---|',
+    ...known.map((x) => `| ${x.where} | \`${x.what.replace(/\|/g, '/')}\` | ${CAUSES[x.cause]} | ${x.total} | ${x.sinceFix} | ${(x.fixed || '—').replace(/\|/g, '/')} | ${x.sinceFix >= 2 ? '**a prevention card**' : x.sinceFix === 1 ? 'watch: the next one is a prevention' : 'none'} |`));
+  return text.join('\n');
 }
 
 /** Is the weekly grouping due on this issue? Due when reports are open and no digest was posted in the
@@ -206,7 +221,7 @@ const opts = (n) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1
 async function main() {
   const [cmd] = argv;
   if (cmd === 'file') {
-    const r = { what: opt('--what'), tried: opt('--tried'), expected: opt('--expected'), happened: opt('--happened'), fix: opt('--fix'), by: opt('--by') };
+    const r = { what: opt('--what'), tried: opt('--tried'), expected: opt('--expected'), happened: opt('--happened'), fix: opt('--fix'), by: opt('--by'), cause: opt('--cause') };
     const bad = problems(r);
     if (bad.length) { for (const p of bad) console.log(`papercut: REFUSED ${p}`); process.exitCode = bad.some((p) => /secret/.test(p)) ? 1 : 2; return; }
     const text = comment(r, { version: version() });

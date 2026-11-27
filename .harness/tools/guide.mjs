@@ -39,7 +39,7 @@ import { appendFileSync, lstatSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256 } from './lib.mjs';
-import { BOT, RISK_MODEL, PRICES, REPO, SETTINGS, cost, capOf, plain, switchOf, settingsOf, exchange, github, pages } from './review.mjs';
+import { BOT, RISK_MODEL, PRICES, REPO, SETTINGS, cost, capOf, plain, switchOf, settingsOf, exchange, github, pages, refusalOf } from './review.mjs';
 // sweep.mjs hands this module its file list (gather), so the two never import each other at load time
 /** A section or path name as text an issue may carry (as sweep.mjs's label). */
 export const label = (s) => plain(String(s).replace(/[`<>\r\n]/g, ' '), 200);
@@ -268,11 +268,11 @@ export async function guide({ gh, api, repo, sha, p, env = {}, now = () => Date.
     await save();
     const r = await api('POST', '/v1/messages/batches', { requests: reqs.map((x) => ({ custom_id: `${kind[0]}-${x.key}`, params: x.params })) });
     if (r.status !== 200 || !/^msgbatch_[A-Za-z0-9]+$/.test(String(r.json?.id || ''))) {
-      const type = String(r.json?.error?.type || 'error').replace(/[^\w-]/g, '').slice(0, 40);
+      const no = refusalOf(r.status, r.json);
       // a refused request is not billed; a server error may still have created it: keep its worst case
       if (r.status === 0 || r.status >= 500) state.lost = Math.round(((state.lost || 0) + worst) * 1e4) / 1e4;
       state[kind] = null;
-      return `the Batch API refused the ${kind} batch (${r.status} ${type})${[402, 403].includes(r.status) ? ': the credit or a spend limit' : ''}`;
+      return `the Batch API refused the ${kind} batch (${no.why})${!no.limit && [402, 403].includes(r.status) ? ': the credit or a spend limit' : ''}`;
     }
     state[kind].id = r.json.id;
     await save();

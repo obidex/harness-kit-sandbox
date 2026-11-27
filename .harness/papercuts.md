@@ -20,7 +20,9 @@ anything is posted. Reports are comments with the marker `<!-- papercut -->`; no
 
 ## Filing one (any thread)
 
-1. File it once, the first time the thing fights you, and go on with the work:
+1. File it once, the first time the thing fights you, and go on with the work. A failed check whose cause you
+   found gets `--cause product|flaky|infrastructure|old-rule` (K079, `metrics.md` §5), so the digest lists it
+   among the known causes:
    `node .harness/tools/papercut.mjs file --what "<tool, skill, rule or file>" --tried "…" --expected "…" --happened "…" --fix "…" --by "<thread or card>"`.
    Check: it prints `papercut: filed <link>`; the issue's count line went up by one.
 2. When the tool refuses (exit 1) or GitHub does not take it (exit 3), put the printed report in the
@@ -36,7 +38,8 @@ anything is posted. Reports are comments with the marker `<!-- papercut -->`; no
    home issue (the papercut issue of the project whose coordinator runs the digest): `node .harness/tools/papercut.mjs digest --from <issue> --from <issue> … --post <home issue>`.
    Check: the home issue has a new comment with `<!-- papercut-digest -->`, and `due` now prints
    `NOT DUE`.
-5. File one card for each of the top three groups, in the repository that owns the thing (an inbox
+5. File one card for each of the top three groups, and one prevention card for every known cause the
+   digest marks "a prevention card" (seen twice since its last fix), in the repository that owns the thing (an inbox
    card for another project, O14), naming the reports it answers:
    `node .harness/tools/inbox.mjs send --repo <owner/name> …` or a card in this repository.
    Check: each of the three groups has a card link in the run's STATE note.

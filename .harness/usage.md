@@ -8,7 +8,8 @@
 > and by whether its first call found the cache warm. It reads; it changes nothing.
 
 **Where the records are.** A cloud thread cannot open another thread's session file. It reads other
-threads only through two tools, `list_threads` (hearthbot) and `list_events` (claude-code-remote), and
+threads only through two tools, `list_threads` (hearthbot; named `list_thread_sessions` in some sessions,
+read the same way) and `list_events` (claude-code-remote), and
 their results stay in its own transcript under `~/.claude/projects/` or in the file a long result is
 saved to. `node .harness/tools/usage.mjs` reads them back from there: no key and no network. Records
 are private: the table goes on a private issue, never into a public repository.
@@ -24,7 +25,8 @@ thread; the price is its proxy, and M2 below turns it into points of the week.
 
 1. Start one paging worker (Agent tool, `model: "haiku"`, low effort, in the background) with this brief,
    the window's start filled in: "Read-only paging worker. Load `mcp__hearthbot__list_threads` and
-   `mcp__claude-code-remote__list_events`. Call list_threads with since=`<from>`, limit 100, following
+   `mcp__claude-code-remote__list_events` (where the session has `list_thread_sessions` instead, use it as
+   list_threads). Call list_threads with since=`<from>`, limit 100, following
    next_cursor. Then loop: run `node .harness/tools/usage.mjs next --from <from> --max 12`; make every
    list_events call it prints, exactly as printed, in parallel, never adding kinds, ignoring what comes
    back; stop when it prints DONE or after 40 rounds. Reply in 5 lines: rounds, calls, DONE or not,
@@ -51,6 +53,7 @@ thread; the price is its proxy, and M2 below turns it into points of the week.
 
 | What goes wrong | Do |
 |---|---|
+| The session's safety check refuses to start the paging worker | a finding (C14): record the exact call, never page by another road; ask the owner once on a decision card (start the worker, or leave this project out) and name the rows "not measured" until he picks |
 | `next` says no list_threads result was found | the worker skipped step 1's first call: start it again with the same brief |
 | A list_events call errors for one thread (not found, no access) | leave that thread out and name it under "not read" in the posted table |
 | `next` keeps printing the same call | the saved result was not written: run that one call yourself, then `next` again; after three, leave the thread out and name it |

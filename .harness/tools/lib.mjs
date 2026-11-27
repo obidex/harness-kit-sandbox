@@ -1,7 +1,7 @@
 // Shared helpers for the kit's tools. No dependencies: Node 20+ only.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync, appendFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 export const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
@@ -254,4 +254,19 @@ export function plainValueProblems(text) {
     if (m && /:\s/.test(m[1].replace(/\s+#.*$/, ''))) out.push(`line ${n + 1}: a plain value contains ": " (quote it or use a block scalar)`);
   }
   return out;
+}
+
+/** One plain failure line, where people and the status feed read it (K079): on GitHub Actions an error
+ *  annotation (the check run's annotations, which the REST API returns) and the job summary's first lines;
+ *  anywhere, stderr. `check`: the check's name as the project sees it; `line`: one sentence, what failed and
+ *  the next step. Long lines are cut at 300 characters; a newline becomes a space. */
+export function plainFail(check, line) {
+  const one = String(line || '').replace(/\s*\n\s*/g, ' ').trim().slice(0, 300);
+  const esc = (x) => String(x).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    process.stdout.write(`::error title=${esc(check).replace(/[:,]/g, ' ')}::${esc(one)}\n`);
+    if (process.env.GITHUB_STEP_SUMMARY) { try { appendFileSync(process.env.GITHUB_STEP_SUMMARY, `**${check} failed:** ${one}\n\n`); } catch { /* the summary is a convenience */ } }
+  }
+  console.error(`${check}: FAILED: ${one}`);
+  return one;
 }
