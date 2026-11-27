@@ -9,7 +9,7 @@
 //                                   [--points <n> --points-at <ISO> --since <ISO>] [--merged <project>=<n> …]
 //
 // Where the records come from (no key, no network): a cloud thread reads other threads' records only
-// through the claude-code-remote tools `list_threads` and `list_events`, and their results stay in its
+// through `list_threads` (hearthbot; `list_thread_sessions` in some sessions) and claude-code-remote's `list_events`, and their results stay in its
 // own transcript (`~/.claude/projects/**/*.jsonl`, subagents included) or in the files a long result is
 // saved to. This tool reads those back. `next` says which page to fetch next, so a Haiku worker can do
 // the paging with no judgment (`usage.md`); `table` turns the pages into the table.
@@ -61,7 +61,11 @@ export function jsonAt(s, start) {
     if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
     if (ch === '"') inStr = true;
     else if (ch === '{') depth++;
-    else if (ch === '}' && --depth === 0) { try { return JSON.parse(s.slice(i, j + 1)); } catch { return null; } }
+    else if (ch === '}' && --depth === 0) {
+      const text = s.slice(i, j + 1);
+      try { return JSON.parse(text); } catch { /* a raw control character inside a string: blank it and try once more */ }
+      try { return JSON.parse(text.replace(/[\u0000-\u001f]/g, ' ')); } catch { return null; }
+    }
   }
   return null;
 }
@@ -88,11 +92,11 @@ export function readRecords(dirs) {
       const content = o?.message?.content;
       if (!Array.isArray(content)) continue;
       for (const c of content) {
-        if (c?.type === 'tool_use' && /list_events$|list_threads$/.test(c.name || '')) uses.set(c.id, c);
+        if (c?.type === 'tool_use' && /list_events$|list_thread(s|_sessions)$/.test(c.name || '')) uses.set(c.id, c);
         if (c?.type !== 'tool_result' || !uses.has(c.tool_use_id)) continue;
         const use = uses.get(c.tool_use_id);
         const text = resultText(c.content);
-        if (/list_threads$/.test(use.name)) {
+        if (/list_thread(s|_sessions)$/.test(use.name)) {
           const j = jsonAt(text, '{"sessions"');
           for (const s of j?.sessions || []) threads.set(sessionKey(s.session_id), { title: s.title || '', created_at: s.created_at, last_activity_at: s.last_activity_at || s.created_at, thread_id: s.thread_id });
         } else {
@@ -352,7 +356,7 @@ export function main(argv) {
     if (!o.from) { console.error('usage: --from <ISO time> is required'); return 2; }
     const rec = readRecords(dirs);
     if (cmd === 'next') {
-      if (!rec.threads.size) { console.error('no list_threads result found: call list_threads (since --from) first'); return 3; }
+      if (!rec.threads.size) { console.error('no list_threads (or list_thread_sessions) result found: call it (since --from) first'); return 3; }
       const calls = plan(rec, { from: o.from, to: o.to, max: Number(o.max || 8) });
       for (const c of calls) console.log(JSON.stringify(c));
       console.log(calls.length ? `MORE: ${calls.length} call(s) above` : 'DONE');

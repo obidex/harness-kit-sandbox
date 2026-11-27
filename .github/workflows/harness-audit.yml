@@ -2,8 +2,10 @@
 # Action group: auto (it checks, reports, alerts or wakes by itself; .harness/tools/actions.mjs)
 # Runs on the chore lane: CHORE_RUNNER when set, else RUNNER (K059, .harness/ci.md).
 # The kit's structural audit (.harness/audit/README.md §1). On a pull request it runs fully only when
-# kit, entry, agent or workflow files changed, and otherwise passes at once, so it can be a required
-# check. Weekly it also reads GitHub (rulesets, default-branch runs) and reports to one issue.
+# kit, entry, agent or workflow files changed; every pull request first gets the seconds-long precheck
+# (K079: a decision edited, the closed log losing lines, a cap over), so a mistake fails the pull request
+# that makes it, not the next kit update. Weekly it also reads GitHub (rulesets, default-branch runs) and
+# reports to one issue.
 name: harness-audit
 
 on:
@@ -50,10 +52,15 @@ jobs:
             echo "run=0" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: steps.scope.outputs.run == '1'
+        if: steps.scope.outputs.run == '1' || github.event_name == 'pull_request'
         with:
           node-version: 22
           package-manager-cache: false
+      - name: This change's own decisions, log and capped files (precheck, K079)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: node .harness/tools/precheck.mjs --base "$BASE"
       - name: Kit files match the lock
         if: steps.scope.outputs.run == '1'
         run: node .harness/tools/harness.mjs status

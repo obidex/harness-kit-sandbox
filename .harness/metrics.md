@@ -1,6 +1,6 @@
 # Harness Kit · measuring the agents
 
-> Lookup only, never loaded. K034 (roadmap #48, P7). Three measures: numbers from GitHub on a
+> Lookup only, never loaded. K034 (roadmap #48, P7). Three measures, and where runner time goes (§4, K078): numbers from GitHub on a
 > health page, a token budget for what every session loads, and a frozen replay set for rule and
 > model changes. None of them spends money or runs AI on a machine.
 
@@ -49,3 +49,66 @@ A frozen set of 20-50 past incidents, rewritten without project names, each a mu
 situation graded deterministically. A kit release that changes `core.md`, `owner-defaults.md` or an
 adapter (A23 names the models) carries `replay/results/<version>.json`, made by fresh agents on the
 new text and re-graded by CI. How to run it: `replay/README.md` in the kit repository.
+
+## 4. Repeated CI runs (`tools/ci-repeats.mjs`, K078)
+
+`node .harness/tools/ci-repeats.mjs --repo owner/name [--repo …] [--days 7] [--max-calls 1500]` reads
+the window's runs and every attempt of their jobs; a host that already reads them (the VPS's minutes
+count) hands its records over with `--runs FILE --jobs FILE [--pulls FILE]` and spends no call of its
+own. Reading costs one call per run: a busy week of six repositories is several thousand calls of the
+account's shared hourly limit, so the reader stops at `--max-calls` and says partial.
+
+Each job attempt is counted once, as runner minutes (`completed - started`; a job GitHub dropped while
+it waited has a start time but no runner and counts 0), in exactly one cause, so the causes add up to
+the total. "Cancelled" is a flag inside a cause, never a cause of its own.
+
+| Cause | Exactly what | Avoidable |
+|---|---|---|
+| same | content already tested: the same job had passed on it, or already held a runner on it (a re-run of a passed job; a pull request run again with neither its head nor its base moved, after an edited title, an empty commit or a reopen; the default branch on a tree its pull request already tested green) | yes |
+| retry | the same content again after the same job failed on it | no (a flake's cost) |
+| bot | a bot's commit pushed on top of a person's pull request (generated files) | yes |
+| base | a merge of the default branch into the pull request, or the same head again after the default branch moved | no: a new combination |
+| main | the default branch on content no run had tested | no |
+| change | a pull request's own new content (a bot's own pull request, such as a kit update, included) | no |
+| other | what no change started: schedules, issues, comments, dispatches, `workflow_run` | not counted as CI |
+
+Content: a pull request run tests its head on the base of that moment (the newest default-branch head
+seen before it); the default branch tests its tree. A pull request run that passed also covers its head
+tree for the default branch: the default branch reaches exactly that tree only when the head already
+held the base it was tested on. Runs are tied to their pull request by branch while that pull request
+was open (GitHub's run listing often leaves the number out), never by branch alone.
+
+| Number | Exactly what |
+|---|---|
+| Avoidable runner-hours a week | same + bot, scaled to 7 days; also as a share of CI time (all but other) |
+| Ready to green | per pull request merged in the window (its default-branch run's "(#N)"): from the first run on its last own commit (neither a merge of the base nor a bot's) to when the newest run of each workflow on its merged head had finished green; median and p90 |
+| Check runs per merged change | runs of the project's check (its biggest pull-request workflow, the kit's chores left out) on the pull request and its merge |
+| Merged a day | the guard beside every fix: it must not fall |
+
+Limits: a restart counts in full as same, though only the cancelled part was lost; a push to a tag counts as a
+change; a re-run started more than two days after its run is not seen by a host that closes days;
+commit statuses are not runs; a project whose squash commits drop "(#N)" has no ready-to-green.
+
+## 5. First pass and its causes (`tools/ci-repeats.mjs`, K079)
+
+One number per project, weekly, in the status feed beside §4: **first pass**, the share of ready changes whose
+first judged head passed every workflow on its first attempt. A ready change is a pull request whose first run
+started in the window; its first judged head is the first head whose runs all finished and were not cancelled (a
+head the next push cancelled is not judged). A head whose commit says it fails on purpose ("expected to fail",
+"deliberately failing", "fails on purpose", "[expect-fail]") is left out, so a failure that proves a test works
+never lowers the rate.
+
+Each failed first pass carries exactly one cause, taken in this order:
+
+| Cause | When | What it asks for |
+|---|---|---|
+| infrastructure | a failed job had no runner or timed out, the run could not start, or it failed with no failed job | the runner, GitHub or the network: the platform's card |
+| unreliable test | a re-run of the same attempt passed, or a later run of the same workflow on the same tree passed | the test: measure against a baseline taken in the same job, or count work instead of time |
+| old finding under a new rule | a kit update branch (`harness/kit-*`), or a workflow already red on the default branch before the pull request's first run | the rule's release: tried on the projects first (`trial.mjs`) |
+| product defect | the rest: a new commit fixed it | nothing new: this is what checks are for |
+
+The second time a known cause appears, the card that fixes it is a prevention, not another investigation: file it
+as a papercut with `--cause` (`papercuts.md`), and the weekly digest lists the known causes in one place.
+
+Limits: one cause per change, from its first failed workflow; a run whose jobs were not read is judged by its
+conclusion; a pull request whose runs carry no number and whose branch matches no listed pull request is not seen.

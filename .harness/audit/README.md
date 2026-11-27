@@ -14,7 +14,11 @@ with "judgment review" as evidence.
 
 - **When it runs.** The installed workflow `harness-audit.yml` runs it on pull requests that change
   `.harness/**`, `CLAUDE.md`, `AGENTS.md`, `.claude/**` or `.github/**`, and weekly with GitHub
-  access. A FAIL on a pull request names the rule and the evidence.
+  access; every pull request first gets `precheck.mjs`, the seconds-long check of its own decisions,
+  closed log and capped files (K079). A FAIL on a pull request names the rule and the evidence, and
+  writes one plain line as an error annotation and in the job summary.
+- **Before a release.** `trial.mjs` runs the candidate's audit and its kit update on a copy of every
+  project's default branch; the release's changelog carries its trial line (K079).
 - **What it cannot see.** Settings only the owner can read, a host's runner guards, a hosting
   dashboard, alert history: those stay `UNKNOWN` until the judgment review settles them by sample.
 - **Heuristics are findings, not verdicts.** A structural FAIL whose evidence shows a recorded,
@@ -27,7 +31,9 @@ with "judgment review" as evidence.
   other, so the exception never hides a recurrence. C17's is for the closed decisions log's entry moved
   word for word into its own file (`decisions.md`, K067), or for a written decision file changed only to
   take out what a rule keeps out of files, such as a name (K073); its caps, budget and decisions-register
-  checks are never skipped.
+  checks are never skipped. Two cases need no baseline line, because the audit proves them (K079): a
+  word-for-word move out of the closed log, and a past edit of a written decision that a newer decision
+  names with its commit.
 
 ## 2. Judgment review (sampled, by a fresh-context reviewer)
 
