@@ -171,18 +171,39 @@ export function triggers(wf) {
 // and metrics.mjs and notify.mjs, each fetched alone, keep theirs.
 
 /** One call. Never throws on an HTTP answer: `{ status, data, text }`, data the parsed JSON (null when
- *  the answer is empty, the text when it is not JSON, always the text with `raw`). No token, no header. */
+ *  the answer is empty, the text when it is not JSON, always the text with `raw`). No token, no header.
+ *  A read (GET, HEAD) that meets GitHub's own hiccup, a 500, 502, 503 or 504 or no answer at all, is
+ *  tried again: three tries in all, 2 s then 4 s apart (HARNESS_GH_RETRY_MS sets the step; the tests use
+ *  0), each retry one line on stderr; the last answer stands, and no answer at the last try throws as
+ *  before (K075). A write is sent once: a 502 does not say it did not land, and a second comment, label
+ *  or merge is worse than a red run that the next run repeats. */
 export async function ghCall(method, path, data, { agent = 'harness-kit', token, accept = 'application/vnd.github+json', raw = false } = {}) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: { accept, 'x-github-api-version': '2022-11-28', 'user-agent': agent,
-      ...(token ? { authorization: `Bearer ${token}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const text = await r.text();
-  let json = text;
-  if (!raw) { try { json = text ? JSON.parse(text) : null; } catch { /* not JSON: the text */ } }
-  return { status: r.status, data: json, text };
+  const tries = method === 'GET' || method === 'HEAD' ? 3 : 1;
+  const step = Number(process.env.HARNESS_GH_RETRY_MS ?? 2000);
+  for (let n = 1; ; n++) {
+    let status, text;
+    try {
+      const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
+        method,
+        headers: { accept, 'x-github-api-version': '2022-11-28', 'user-agent': agent,
+          ...(token ? { authorization: `Bearer ${token}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
+        body: data ? JSON.stringify(data) : undefined,
+      });
+      status = r.status;
+      text = await r.text();
+    } catch (e) {
+      if (n >= tries) throw e;
+      status = `got no answer (${String(e.cause?.code || e.message).slice(0, 80)})`;
+    }
+    if (typeof status === 'number' && (n >= tries || ![500, 502, 503, 504].includes(status))) {
+      let json = text;
+      if (!raw) { try { json = text ? JSON.parse(text) : null; } catch { /* not JSON: the text */ } }
+      return { status, data: json, text };
+    }
+    const ms = (Number.isFinite(step) && step >= 0 ? step : 2000) * n;
+    console.error(`${agent}: ${method} ${path.split('?')[0]} ${typeof status === 'number' ? `answered ${status}` : status}, a GitHub hiccup; trying again in ${ms / 1000} s (try ${n + 1} of ${tries})`);
+    await new Promise((done) => setTimeout(done, ms));
+  }
 }
 
 /** A tool's client, `(method, path, data, { accept, raw })`: the data of a 2xx answer. Any other answer

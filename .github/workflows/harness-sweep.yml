@@ -19,6 +19,9 @@
 # reason; the access token stays in the job's memory.
 # Caps, in sweep.mjs: $30 for one check (REVIEW_SWEEP_USD may only lower it), 250 areas, one call per
 # area, 320 minutes a run. The reviews workspace's spend limit is the stop above them.
+# Lens staff-guide-<language> (K074, .harness/tools/guide.mjs): instead of a check, a staff guide written
+# from the code, one page per screen section, by the Batch API, each page checked by a second pass, posted
+# on one record issue; $15 for one guide, same switch, same rule.
 # Cost (O13): the API calls (the estimate says the most a check could cost, before anything is spent);
 # and one job of up to 350 minutes on the project's RUNNER lane, which holds that runner meanwhile.
 # GitHub-hosted minutes only on a private repository without a self-hosted RUNNER: tell the owner the
@@ -38,9 +41,9 @@ on:
         type: string
         default: ""
       lens:
-        description: "none = the full check; a name = one specialist pass on that lens, its own record and cap (K068)"
+        description: "none = the full check; a name = one specialist pass on that lens, its own record and cap (K068); staff-guide-<language> = a staff guide written from the code instead (K074)"
         type: choice
-        options: [none, permissions, money-stock, irreversible, arabic-rtl, weakened-tests]
+        options: [none, permissions, money-stock, irreversible, arabic-rtl, weakened-tests, staff-guide-ar, staff-guide-en]
         default: none
 
 permissions:

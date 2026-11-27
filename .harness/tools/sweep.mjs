@@ -368,6 +368,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     if (cmd !== 'plan' && cmd !== 'run') { console.error('usage: sweep.mjs plan [--root dir] [--paths a,b] [--lens name] | run [--root dir] (see the header)'); process.exit(2); }
     const root = resolve(arg('root') || '.');
     const only = onlyOf(cmd === 'run' ? process.env.SWEEP_PATHS : arg('paths'));
+    // a staff guide (K074) rides the same job, switch and federation rule: guide.mjs does the rest
+    const { langOf, main } = await import('./guide.mjs');
+    const lang = langOf(cmd === 'run' ? process.env.SWEEP_LENS : arg('lens'));
+    if (lang) { await main({ cmd, root, only, lang, estimate: cmd === 'plan' || process.env.SWEEP_MODE !== 'run', inActions, base: api, gather }); process.exit(0); }
     const paths = execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).split('\0').filter(Boolean);
     const stat = (path) => lstatSync(join(root, path));
     const read = (path) => readFileSync(join(root, path), 'utf8');

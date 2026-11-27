@@ -2,7 +2,7 @@
 
 > Lookup only, never loaded. K054, K055, K060. The tool is `tools/review.mjs`; the workflow is
 > `templates/workflows/harness-review.yml`, installed as `.github/workflows/harness-review.yml`.
-> The full check of existing code is `tools/sweep.mjs` with `templates/workflows/harness-sweep.yml`.
+> The full check of existing code is `tools/sweep.mjs` with `templates/workflows/harness-sweep.yml`; the staff guide is `tools/guide.mjs` on the same job.
 
 ## The switch (K055)
 
@@ -185,6 +185,15 @@ the high-risk model, and the pass keeps its own record issue ("Second reviewer: 
 of the existing code") and its own $30 cap, so it never continues or uses up the full check. The lens is
 a fixed choice: no text a person types reaches the question. `estimate` with a lens prints that pass's
 worst case first.
+
+**A staff guide (K074)** is the same job with `lens` set to `staff-guide-ar` (or `staff-guide-en`):
+`tools/guide.mjs` finds the screens (a `page` file under an `app/` folder), groups them by their first
+route part and writes one page of a staff guide per group from its code and its labels file, by the
+Batch API at half price; a second batch checks each page against the same code and corrects what the
+code does not support. The pages go on one record issue ("Staff guide (<language>): one page per screen,
+from the code"), a comment each; the coordinator copies them where staff read them. Same switch, same
+federation rule (`sweep_rule`), $15 for all guides the repository ever runs, in any language and any window; `estimate` prints the sections and the worst case
+first. It reads code it cannot run, so a page can still be wrong: someone reads it against the screen.
 
 Like the reviewer it cannot run code and sees one batch at a time, so a finding that depends on
 another folder says so, and "no findings" is not evidence that the code works (C07).

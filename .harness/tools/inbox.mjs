@@ -12,7 +12,9 @@
 //   node .harness/tools/inbox.mjs pending --repo owner/name     the queued requests (JSON)
 //   node .harness/tools/inbox.mjs state --repo owner/name --issue <n> --to working|blocked|done
 //        [--note <text>]                  move a request; `done` needs --note with the evidence and
-//                                         closes the issue, `blocked` needs --note with the reason
+//                                         closes the issue, `blocked` needs --note with the reason,
+//                                         which the State line carries too ("blocked: <reason>"). A
+//                                         request filed by hand (`inbox`, no State line) gets one (K076)
 //   node .harness/tools/inbox.mjs wake --repo owner/name --issue <n>
 //                                         in Actions only (harness-inbox.yml, or hands-inbox.yml in the
 //                                         control repository): if that issue is a queued request not
@@ -76,11 +78,23 @@ export function parse(text) {
   return out;
 }
 
+/** The body with its State line set (K076): replaced, or added at the end of a request filed by hand. */
+export function withState(text, value) {
+  const b = String(text || '');
+  const v = String(value).replace(/\s*\n\s*/g, ' ').trim();
+  return /^- \*\*State:\*\*.*$/m.test(b) ? setField(b, 'State', v) : `${b.replace(/\s+$/, '')}\n\n- **State:** ${v}\n`;
+}
+/** What a request's State line says for a move: the word, and for blocked its reason (the owner's status page
+ *  shows what a request waits on from this line), cut to one line of at most 160 characters. */
+export const stateText = (to, note) => (to === 'blocked' && note ? `blocked: ${String(note).replace(/\s*\n\s*/g, ' ').trim().slice(0, 160)}` : to);
+
 /** The body with one field replaced. */
 export function setField(text, field, value) {
   const re = new RegExp(`^(- \\*\\*${field}:\\*\\*).*$`, 'm');
   if (!re.test(text)) throw new Error(`the request has no "${field}" line`);
-  return text.replace(re, `$1 ${String(value).replace(/\s*\n\s*/g, ' ').trim()}`);
+  // a function, so a "$" in the value (a price, "$1") is kept as written, never read as a replacement pattern
+  const v = String(value).replace(/\s*\n\s*/g, ' ').trim();
+  return text.replace(re, (_, head) => `${head} ${v}`);
 }
 
 // --- GitHub ---------------------------------------------------------------------------------------
@@ -88,18 +102,39 @@ export function setField(text, field, value) {
 // exact copy of lib.mjs's GitHub client (test-inbox checks it), for this file and the two that import it.
 
 /** One call. Never throws on an HTTP answer: `{ status, data, text }`, data the parsed JSON (null when
- *  the answer is empty, the text when it is not JSON, always the text with `raw`). No token, no header. */
+ *  the answer is empty, the text when it is not JSON, always the text with `raw`). No token, no header.
+ *  A read (GET, HEAD) that meets GitHub's own hiccup, a 500, 502, 503 or 504 or no answer at all, is
+ *  tried again: three tries in all, 2 s then 4 s apart (HARNESS_GH_RETRY_MS sets the step; the tests use
+ *  0), each retry one line on stderr; the last answer stands, and no answer at the last try throws as
+ *  before (K075). A write is sent once: a 502 does not say it did not land, and a second comment, label
+ *  or merge is worse than a red run that the next run repeats. */
 export async function ghCall(method, path, data, { agent = 'harness-kit', token, accept = 'application/vnd.github+json', raw = false } = {}) {
-  const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
-    method,
-    headers: { accept, 'x-github-api-version': '2022-11-28', 'user-agent': agent,
-      ...(token ? { authorization: `Bearer ${token}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const text = await r.text();
-  let json = text;
-  if (!raw) { try { json = text ? JSON.parse(text) : null; } catch { /* not JSON: the text */ } }
-  return { status: r.status, data: json, text };
+  const tries = method === 'GET' || method === 'HEAD' ? 3 : 1;
+  const step = Number(process.env.HARNESS_GH_RETRY_MS ?? 2000);
+  for (let n = 1; ; n++) {
+    let status, text;
+    try {
+      const r = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}${path}`, {
+        method,
+        headers: { accept, 'x-github-api-version': '2022-11-28', 'user-agent': agent,
+          ...(token ? { authorization: `Bearer ${token}` } : {}), ...(data ? { 'content-type': 'application/json' } : {}) },
+        body: data ? JSON.stringify(data) : undefined,
+      });
+      status = r.status;
+      text = await r.text();
+    } catch (e) {
+      if (n >= tries) throw e;
+      status = `got no answer (${String(e.cause?.code || e.message).slice(0, 80)})`;
+    }
+    if (typeof status === 'number' && (n >= tries || ![500, 502, 503, 504].includes(status))) {
+      let json = text;
+      if (!raw) { try { json = text ? JSON.parse(text) : null; } catch { /* not JSON: the text */ } }
+      return { status, data: json, text };
+    }
+    const ms = (Number.isFinite(step) && step >= 0 ? step : 2000) * n;
+    console.error(`${agent}: ${method} ${path.split('?')[0]} ${typeof status === 'number' ? `answered ${status}` : status}, a GitHub hiccup; trying again in ${ms / 1000} s (try ${n + 1} of ${tries})`);
+    await new Promise((done) => setTimeout(done, ms));
+  }
 }
 
 /** A tool's client, `(method, path, data, { accept, raw })`: the data of a 2xx answer. Any other answer
@@ -418,10 +453,12 @@ async function main() {
     if (!STATES.includes(to) || to === 'queued') throw new Error(`--to must be working, blocked or done`);
     if ((to === 'done' || to === 'blocked') && !note) throw new Error(`--to ${to} needs --note (${to === 'done' ? 'the completion evidence' : 'the reason'})`);
     const i = await api('GET', `/repos/${repo}/issues/${n}`);
-    const f = parse(i.body);
-    if (!f) throw new Error(`#${n} is not an inbox request`);
-    let text = setField(i.body, 'State', to);
-    if (to === 'done') text = setField(text, 'Evidence', note);
+    // a request filed by hand (the label, no inbox-id) is a request too: its State line is added (K076)
+    const hand = !i.pull_request && (i.labels || []).some((l) => (l.name ?? l) === LABEL) && trusted(i);
+    const f = parse(i.body) || (hand ? { id: 'the request filed by hand', Source: null } : null);
+    if (!f) throw new Error(`#${n} is not an inbox request (no inbox-id, and no \`${LABEL}\` label from a trusted author)`);
+    let text = withState(i.body, stateText(to, note));
+    if (to === 'done') text = /^- \*\*Evidence:\*\*/m.test(text) ? setField(text, 'Evidence', note) : `${text.replace(/\s+$/, '')}\n- **Evidence:** ${String(note).replace(/\s*\n\s*/g, ' ').trim()}\n`;
     await api('PATCH', `/repos/${repo}/issues/${n}`, { body: text, ...(to === 'done' ? { state: 'closed', state_reason: 'completed' } : {}) });
     await api('POST', `/repos/${repo}/issues/${n}/comments`, { body: `**${to}**${note ? `: ${note}` : ''}` });
     console.log(`inbox: ${f.id} (#${n}) is ${to}`);
